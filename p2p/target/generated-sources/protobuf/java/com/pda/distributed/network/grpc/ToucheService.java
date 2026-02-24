@@ -25,6 +25,36 @@ public final class ToucheService {
   static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_com_pda_distributed_network_grpc_PingResponse_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_com_pda_distributed_network_grpc_PeticionEstado_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_com_pda_distributed_network_grpc_PeticionEstado_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_com_pda_distributed_network_grpc_RespuestaEstado_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_com_pda_distributed_network_grpc_RespuestaEstado_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_com_pda_distributed_network_grpc_PeticionVoto_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_com_pda_distributed_network_grpc_PeticionVoto_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_com_pda_distributed_network_grpc_RespuestaVoto_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_com_pda_distributed_network_grpc_RespuestaVoto_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_com_pda_distributed_network_grpc_PeticionSubida_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_com_pda_distributed_network_grpc_PeticionSubida_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_com_pda_distributed_network_grpc_RespuestaSubida_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_com_pda_distributed_network_grpc_RespuestaSubida_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -37,11 +67,25 @@ public final class ToucheService {
       "\n\024touche-service.proto\022 com.pda.distribu" +
       "ted.network.grpc\"%\n\013PingRequest\022\026\n\016mensa" +
       "je_saludo\030\001 \001(\t\"0\n\014PingResponse\022\r\n\005exito" +
-      "\030\001 \001(\010\022\021\n\trespuesta\030\002 \001(\t2|\n\021P2PNetworkS" +
-      "ervice\022g\n\004ping\022-.com.pda.distributed.net" +
-      "work.grpc.PingRequest\032..com.pda.distribu" +
-      "ted.network.grpc.PingResponse\"\000B\002P\001b\006pro" +
-      "to3"
+      "\030\001 \001(\010\022\021\n\trespuesta\030\002 \001(\t\"&\n\016PeticionEst" +
+      "ado\022\024\n\014datos_estado\030\001 \001(\t\" \n\017RespuestaEs" +
+      "tado\022\r\n\005exito\030\001 \001(\010\"!\n\014PeticionVoto\022\021\n\ti" +
+      "d_accion\030\001 \001(\t\"\037\n\rRespuestaVoto\022\016\n\006acept" +
+      "a\030\001 \001(\010\"7\n\016PeticionSubida\022\022\n\nid_archivo\030" +
+      "\001 \001(\t\022\021\n\tfragmento\030\002 \001(\014\" \n\017RespuestaSub" +
+      "ida\022\r\n\005exito\030\001 \001(\0102\326\003\n\nPdaService\022g\n\004pin" +
+      "g\022-.com.pda.distributed.network.grpc.Pin" +
+      "gRequest\032..com.pda.distributed.network.g" +
+      "rpc.PingResponse\"\000\022z\n\021sincronizarEstado\022" +
+      "0.com.pda.distributed.network.grpc.Petic" +
+      "ionEstado\0321.com.pda.distributed.network." +
+      "grpc.RespuestaEstado\"\000\022j\n\005votar\022..com.pd" +
+      "a.distributed.network.grpc.PeticionVoto\032" +
+      "/.com.pda.distributed.network.grpc.Respu" +
+      "estaVoto\"\000\022w\n\016subirFragmento\0220.com.pda.d" +
+      "istributed.network.grpc.PeticionSubida\0321" +
+      ".com.pda.distributed.network.grpc.Respue" +
+      "staSubida\"\000B\002P\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -59,6 +103,42 @@ public final class ToucheService {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_com_pda_distributed_network_grpc_PingResponse_descriptor,
         new java.lang.String[] { "Exito", "Respuesta", });
+    internal_static_com_pda_distributed_network_grpc_PeticionEstado_descriptor =
+      getDescriptor().getMessageTypes().get(2);
+    internal_static_com_pda_distributed_network_grpc_PeticionEstado_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_com_pda_distributed_network_grpc_PeticionEstado_descriptor,
+        new java.lang.String[] { "DatosEstado", });
+    internal_static_com_pda_distributed_network_grpc_RespuestaEstado_descriptor =
+      getDescriptor().getMessageTypes().get(3);
+    internal_static_com_pda_distributed_network_grpc_RespuestaEstado_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_com_pda_distributed_network_grpc_RespuestaEstado_descriptor,
+        new java.lang.String[] { "Exito", });
+    internal_static_com_pda_distributed_network_grpc_PeticionVoto_descriptor =
+      getDescriptor().getMessageTypes().get(4);
+    internal_static_com_pda_distributed_network_grpc_PeticionVoto_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_com_pda_distributed_network_grpc_PeticionVoto_descriptor,
+        new java.lang.String[] { "IdAccion", });
+    internal_static_com_pda_distributed_network_grpc_RespuestaVoto_descriptor =
+      getDescriptor().getMessageTypes().get(5);
+    internal_static_com_pda_distributed_network_grpc_RespuestaVoto_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_com_pda_distributed_network_grpc_RespuestaVoto_descriptor,
+        new java.lang.String[] { "Acepta", });
+    internal_static_com_pda_distributed_network_grpc_PeticionSubida_descriptor =
+      getDescriptor().getMessageTypes().get(6);
+    internal_static_com_pda_distributed_network_grpc_PeticionSubida_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_com_pda_distributed_network_grpc_PeticionSubida_descriptor,
+        new java.lang.String[] { "IdArchivo", "Fragmento", });
+    internal_static_com_pda_distributed_network_grpc_RespuestaSubida_descriptor =
+      getDescriptor().getMessageTypes().get(7);
+    internal_static_com_pda_distributed_network_grpc_RespuestaSubida_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_com_pda_distributed_network_grpc_RespuestaSubida_descriptor,
+        new java.lang.String[] { "Exito", });
   }
 
   // @@protoc_insertion_point(outer_class_scope)
