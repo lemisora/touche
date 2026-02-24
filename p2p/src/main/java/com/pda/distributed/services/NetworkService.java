@@ -86,13 +86,32 @@ public class NetworkService {
         this.stateSyncService = stateSyncService;
     }
 
-    // Inicia el servidor escuchar a otros nodos
-    public void startServer(int port, StorageCoordinator storageCoordinator) throws IOException {
-        this.grpcServer = ServerBuilder.forPort(port)
-                .addService(new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService, storageCoordinator))
-                .build();
-        this.grpcServer.start();
-        ConsoleLogger.info("Log", "NetworkService: Servidor gRPC iniciado en puerto " + port);
+    // Inicia el servidor escuchar a otros nodos buscando un puerto libre a partir
+    // de 50000
+    public int startServer(StorageCoordinator storageCoordinator) throws IOException {
+        int puertoIntento = 50000;
+        int maxPuerto = 50100;
+
+        while (puertoIntento <= maxPuerto) {
+            try {
+                this.grpcServer = ServerBuilder.forPort(puertoIntento)
+                        .addService(
+                                new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService, storageCoordinator))
+                        .build()
+                        .start();
+
+                ConsoleLogger.info("Log",
+                        "NetworkService: Servidor gRPC iniciado exitosamente en puerto " + puertoIntento);
+                return puertoIntento;
+
+            } catch (IOException e) {
+                // El puerto está ocupado, intentamos con el siguiente
+                ConsoleLogger.advertencia("Log", "Puerto " + puertoIntento + " ocupado. Intentando el siguiente...");
+                puertoIntento++;
+            }
+        }
+
+        throw new IOException("No se pudo encontrar ningún puerto libre entre 50000 y 50100 para iniciar gRPC.");
     }
 
     // Funcionalidad de ping
@@ -119,10 +138,25 @@ public class NetworkService {
                     Thread.currentThread().interrupt();
                     break;
                 }
-            }
-        }
-
+            } // end catch
+        } // end while
         channels.put(port, channel);
+    } // end sendPing
+
+    // Permite saber si ya tenemos una conexión abierta con un nodo (útil para el
+    // auto-descubrimiento)
+    public boolean estaConectado(int port) {
+        return channels.containsKey(port);
+    }
+
+    // Obtener la cantidad de nodos conectados actualmente
+    public int getConnectedNodesCount() {
+        return channels.size();
+    }
+
+    // Obtener una lista de los puertos de los nodos conectados
+    public java.util.List<Integer> getConnectedPorts() {
+        return new java.util.ArrayList<>(channels.keySet());
     }
 
     // Enviar una propuesta de votación a todos los nodos conectados actualmente

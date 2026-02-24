@@ -24,8 +24,7 @@ public class ConsoleLogger {
 
     private static void log(String color, String modulo, String mensaje) {
         String timestamp = LocalDateTime.now().format(FORMATTER);
-        ConsoleLogger.info("Log",
-                color + "[" + timestamp + "] [" + rolConfigurado + "] [" + modulo + "] " + mensaje + RESET);
+        System.out.println(color + "[" + timestamp + "] [" + rolConfigurado + "] [" + modulo + "] " + mensaje + RESET);
     }
 
     // Información general, ej: conexiones de red
