@@ -19,10 +19,25 @@ public class NetworkService {
     // Guardamos los canales para no crearlos a cada rato
     private final Map<Integer, ManagedChannel> channels = new ConcurrentHashMap<>();
 
+    // Referencia al servicio de Quorum para enviarle los votos entrantes
+    private QuorumService quorumService;
+
+    // Permite al Nodo inyectar el servicio de Quorum
+    public void setQuorumService(QuorumService quorumService) {
+        this.quorumService = quorumService;
+    }
+
+    // Permite al Nodo inyectar el servicio de StateSync
+    private StateSyncService stateSyncService;
+
+    public void setStateSyncService(StateSyncService stateSyncService) {
+        this.stateSyncService = stateSyncService;
+    }
+
     // Inicia el servidor escuchar a otros nodos
-    public void startServer(int port) throws IOException {
+    public void startServer(int port, StorageCoordinator storageCoordinator) throws IOException {
         this.grpcServer = ServerBuilder.forPort(port)
-                .addService(new PdaServiceGrpcImpl())
+                .addService(new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService, storageCoordinator))
                 .build();
         this.grpcServer.start();
         System.out.println("NetworkService: Servidor gRPC iniciado en puerto " + port);
@@ -44,7 +59,7 @@ public class NetworkService {
                 System.out.println("Respuesta del otro nodo (" + port + "): " + response.getRespuesta());
                 conectado = true;
             } catch (io.grpc.StatusRuntimeException e) {
-                System.out.println("El nodo destino " + port + " aún no está listo. Reintentando en 3 segundos...");
+                System.out.println("El nodo destino " + port + " no está listo. Reintentando en 3 segundos...");
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException ie) {
@@ -55,6 +70,68 @@ public class NetworkService {
         }
 
         channels.put(port, channel);
+    }
+
+    // Enviar una propuesta de votación a todos los nodos conectados actualmente
+    public void solicitarVotos(String idAccion) {
+        System.out.println(
+                "NetworkService: Enviando petición de voto para '" + idAccion + "' a " + channels.size() + " nodos...");
+
+        com.pda.distributed.network.grpc.PeticionVoto peticion = com.pda.distributed.network.grpc.PeticionVoto
+                .newBuilder()
+                .setIdAccion(idAccion)
+                .build();
+
+        for (Map.Entry<Integer, ManagedChannel> entry : channels.entrySet()) {
+            int puertoDestino = entry.getKey();
+            ManagedChannel canal = entry.getValue();
+
+            // Usamos un stub asíncrono o síncrono. Aquí bloqueamos brevemente por
+            // simplicidad
+            try {
+                PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(canal);
+                com.pda.distributed.network.grpc.RespuestaVoto respuesta = stub.votar(peticion);
+
+                System.out.println("NetworkService: Respuesta de voto recibida del puerto " + puertoDestino + ": "
+                        + (respuesta.getAcepta() ? "Aceptó" : "Rechazó"));
+
+                // Si tuviéramos acceso a QuorumService aquí, le pasaríamos la respuesta
+                // inmediatamente
+                // Pero lo conectaremos en el Orquestador (Facade) o pasando una referencia
+
+            } catch (Exception e) {
+                System.out.println("NetworkService: Error solicitando voto al puerto " + puertoDestino);
+            }
+        }
+    }
+
+    // Enviar el estado propio a todos los nodos conectados (Gossip)
+    public void sincronizarEstado(String miEstado) {
+        // System.out.println("NetworkService: Enviando estado a " + channels.size() + "
+        // nodos...");
+
+        com.pda.distributed.network.grpc.PeticionEstado peticion = com.pda.distributed.network.grpc.PeticionEstado
+                .newBuilder()
+                .setDatosEstado(miEstado)
+                .build();
+
+        for (Map.Entry<Integer, ManagedChannel> entry : channels.entrySet()) {
+            int puertoDestino = entry.getKey();
+            ManagedChannel canal = entry.getValue();
+
+            try {
+                // Para gossip, enviamos sin bloquear mucho tiempo
+                PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(canal);
+                com.pda.distributed.network.grpc.RespuestaEstado respuesta = stub.sincronizarEstado(peticion);
+
+                // System.out.println("NetworkService: Estado sincronizado con puerto " +
+                // puertoDestino + ". Confirmación: " + respuesta.getConfirmacion());
+
+            } catch (Exception e) {
+                System.out.println("NetworkService: Error sincronizando estado con el puerto " + puertoDestino
+                        + ". Puede que esté caído.");
+            }
+        }
     }
 
     public void stop() throws InterruptedException {
