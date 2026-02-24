@@ -3,6 +3,8 @@ package com.pda.distributed.core;
 import com.pda.distributed.services.NetworkService;
 import com.pda.distributed.services.QuorumService;
 import com.pda.distributed.services.StateSyncService;
+import com.pda.distributed.services.StorageCoordinator;
+import com.pda.distributed.services.FileWatcherService;
 import java.io.IOException;
 
 // Facade principal del nodo
@@ -17,6 +19,8 @@ public class Nodo {
     private final NetworkService networkService;
     private final QuorumService quorumService;
     private final StateSyncService stateSyncService;
+    private final StorageCoordinator storageCoordinator;
+    private final FileWatcherService fileWatcherService;
 
     public Nodo(int id, String ip, int port, String name, NodeRole initialRole) {
         this.id = id;
@@ -29,24 +33,32 @@ public class Nodo {
         this.networkService = new NetworkService();
         this.quorumService = new QuorumService();
         this.stateSyncService = new StateSyncService();
+        this.storageCoordinator = new StorageCoordinator();
+        this.fileWatcherService = new FileWatcherService();
 
         // Inyectar dependencias (conectar cables)
         this.quorumService.setNetworkService(this.networkService);
         this.networkService.setQuorumService(this.quorumService);
         this.stateSyncService.setNetworkService(this.networkService);
         this.networkService.setStateSyncService(this.stateSyncService);
+
+        // Cables de Storage
+        this.storageCoordinator.setNetworkService(this.networkService);
+        this.storageCoordinator.setQuorumService(this.quorumService);
+        this.fileWatcherService.setStorageCoordinator(this.storageCoordinator);
     }
 
     public void start() throws IOException {
         System.out.println("--- Iniciando Nodo " + name + " ---");
         System.out.println("ID: " + id + " | IP: " + ip + " | Puerto: " + port + " | Rol: " + currentRole);
 
-        // Arrancar el servidor de red
-        networkService.startServer(port);
+        // Arrancar el servidor de red pasándole nuestra lógica actual
+        networkService.startServer(port, storageCoordinator);
 
-        // Si somos líderes, empezamos a latir
+        // Si somos líderes, empezamos a latir y a vigilar archivos
         if (currentRole == NodeRole.LEADER) {
             stateSyncService.iniciarGossip(port);
+            fileWatcherService.iniciar();
         }
     }
 

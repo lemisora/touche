@@ -35,9 +35,9 @@ public class NetworkService {
     }
 
     // Inicia el servidor escuchar a otros nodos
-    public void startServer(int port) throws IOException {
+    public void startServer(int port, StorageCoordinator storageCoordinator) throws IOException {
         this.grpcServer = ServerBuilder.forPort(port)
-                .addService(new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService))
+                .addService(new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService, storageCoordinator))
                 .build();
         this.grpcServer.start();
         System.out.println("NetworkService: Servidor gRPC iniciado en puerto " + port);
