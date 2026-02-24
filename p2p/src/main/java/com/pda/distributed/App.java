@@ -19,8 +19,7 @@ public class App {
 
         // Validamos que se hayan recibido los argumentos correctos
         if (args.length != 3) {
-            System.out.println(
-                    "Uso: mvn compile exec:java -Dexec.mainClass=\"com.pda.distributed.App\" -Dexec.args=\"<puerto> <ip> <puerto>\"");
+            System.out.println("Uso: mvn compile exec:java -Dexec.mainClass=\"com.pda.distributed.App\" -Dexec.args=\"<puerto> <ip> <puerto>\"");
             return;
         }
 
@@ -52,3 +51,6 @@ public class App {
         server.blockUntilShutdown();
     }
 }
+
+
+    
