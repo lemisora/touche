@@ -1,0 +1,10 @@
+/home/devax/Documentos/distribuida/practicas/touche/p2p/target/generated-sources/protobuf/java/com/pda/distributed/network/grpc/PingResponseOrBuilder.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/target/generated-sources/protobuf/grpc-java/com/pda/distributed/network/grpc/P2PNetworkServiceGrpc.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/target/generated-sources/protobuf/java/com/pda/distributed/network/grpc/ToucheService.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/target/generated-sources/protobuf/java/com/pda/distributed/network/grpc/PingResponse.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/src/main/java/com/pda/distributed/network/NetworkServiceImpl.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/src/main/java/com/pda/distributed/network/NodeServer.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/target/generated-sources/protobuf/java/com/pda/distributed/network/grpc/PingRequestOrBuilder.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/target/generated-sources/protobuf/java/com/pda/distributed/network/grpc/PingRequest.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/src/main/java/com/pda/distributed/network/NodeClient.java
+/home/devax/Documentos/distribuida/practicas/touche/p2p/src/main/java/com/pda/distributed/App.java

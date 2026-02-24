@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package com.pda.distributed.network.grpc;
+
+option java_multiple_files = true;
+
+
+message PingRequest {
+    string mensaje_saludo = 1;
+}
+
+message PingResponse {
+    bool exito = 1;
+    string respuesta = 2;
+}
+
+service P2PNetworkService {
+    rpc ping(PingRequest) returns (PingResponse) {}
+}
