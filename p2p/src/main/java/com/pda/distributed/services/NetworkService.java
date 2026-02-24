@@ -134,6 +134,67 @@ public class NetworkService {
         }
     }
 
+    // =========================================================================
+    // Métodos para la Gestión de Archivos (Subidas/Descargas)
+    // =========================================================================
+
+    /**
+     * Envía un fragmento de archivo a un nodo específico (Worker) de la red.
+     * @param nodoDestino Formato "ip:puerto" (ej. "localhost:50052")
+     * @param idArchivo   El UUID + nombre del archivo original
+     * @param datos       Los bytes puros a enviar
+     * @return true si el nodo destino lo recibió y guardó, false si falló
+     */
+    public boolean enviarFragmento(String nodoDestino, String idArchivo, byte[] datos) {
+        System.out.println("[NetworkService] Preparando envío de fragmento '" + idArchivo + "' a " + nodoDestino + " (" + datos.length + " bytes)");
+
+        int puertoDestino;
+        try {
+            String[] partes = nodoDestino.split(":");
+            puertoDestino = Integer.parseInt(partes[1]);
+        } catch (Exception e) {
+            System.err.println("[NetworkService] Error parseando nodo destino: " + nodoDestino);
+            return false;
+        }
+
+        ManagedChannel canal = channels.get(puertoDestino);
+        if (canal == null) {
+            System.err.println("[NetworkService] No hay conexión establecida con el puerto " + puertoDestino + ". Asegúrate de hacer Ping primero.");
+            return false;
+        }
+
+        try {
+            // Convertimos tu arreglo de bytes de Java al formato de bytes de Protobuf
+            com.google.protobuf.ByteString bytesProto = com.google.protobuf.ByteString.copyFrom(datos);
+
+            // Usamos los nombres exactos de tu .proto
+            com.pda.distributed.network.grpc.PeticionSubida peticion = com.pda.distributed.network.grpc.PeticionSubida
+                    .newBuilder()
+                    .setIdArchivo(idArchivo)
+                    .setFragmento(bytesProto) // Coincide con: bytes fragmento = 2;
+                    .build();
+
+            PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(canal);
+
+            System.out.println("[NetworkService] Enviando petición gRPC de subida...");
+
+            // Coincide con: rpc subirFragmento(PeticionSubida)
+            com.pda.distributed.network.grpc.RespuestaSubida respuesta = stub.subirFragmento(peticion);
+
+            if (respuesta.getExito()) {
+                System.out.println("[NetworkService] ¡Éxito! El nodo " + nodoDestino + " guardó el fragmento.");
+                return true;
+            } else {
+                System.err.println("[NetworkService] El nodo " + nodoDestino + " rechazó el fragmento.");
+                return false;
+            }
+
+        } catch (Exception e) {
+            System.err.println("[NetworkService] Error crítico de red al enviar fragmento a " + puertoDestino + ": " + e.getMessage());
+            return false;
+        }
+    }
+
     public void stop() throws InterruptedException {
         for (ManagedChannel channel : channels.values()) {
             channel.shutdown();
