@@ -44,7 +44,7 @@ public class NetworkService {
                 System.out.println("Respuesta del otro nodo (" + port + "): " + response.getRespuesta());
                 conectado = true;
             } catch (io.grpc.StatusRuntimeException e) {
-                System.out.println("El nodo destino " + port + " aún no está listo. Reintentando en 3 segundos...");
+                System.out.println("El nodo destino " + port + " no está listo. Reintentando en 3 segundos...");
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException ie) {
