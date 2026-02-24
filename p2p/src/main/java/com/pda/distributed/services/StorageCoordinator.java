@@ -3,21 +3,25 @@ package com.pda.distributed.services;
 import com.pda.distributed.storage.DistributedDirectory;
 import com.pda.distributed.storage.StorageManager;
 
+import java.io.File;
+
 // Coordina la distribución física y lógica de los archivos
 public class StorageCoordinator {
 
-    // Dependencias inyectadas para comunicarse con la red y tomar decisiones
+    // Dependencias de Red y Consenso (Próximos a implementar)
     private NetworkService networkService;
     private QuorumService quorumService;
 
-    // Componentes que implementará tu compañero después (comentados por ahora)
-    // private final StorageManager gestorAlmacenamiento;
-    // private final DistributedDirectory directorioDistribuido;
+    // Dependencias de Almacenamiento Local (Próximos a implementar)
+    private StorageManager storageManager;
+    private DistributedDirectory distributedDirectory;
 
     public StorageCoordinator() {
-        // Inicialización de componentes de storage
+        // El constructor se mantiene limpio. 
+        // Las dependencias se inyectan desde la clase principal (App o Nodo).
     }
-
+    
+    // Métodos de Inyección de Dependencias (Setters)
     public void setNetworkService(NetworkService networkService) {
         this.networkService = networkService;
     }
@@ -26,27 +30,71 @@ public class StorageCoordinator {
         this.quorumService = quorumService;
     }
 
-    // Este método es llamado por el FileWatcherService cuando detecta un archivo
-    // nuevo en la carpeta
-    public void manejarNuevoArchivoLocal(String rutaArchivo) {
-        System.out.println("StorageCoordinator: Se detectó un nuevo archivo local en: " + rutaArchivo);
-        System.out.println("StorageCoordinator: Preparando para solicitar ubicación en el anillo...");
-
-        // Aquí pediremos al Quorum o al Lider principal que nos asigne nodos
-        // trabajadores
-        // // TODO : Usar DistributedDirectory para asignar fragmentos
-        // lógicos
-        // // TODO : Usar NetworkService para mandar los fragmentos físicos
-        // por gRPC
+    public void setStorageManager(StorageManager storageManager) {
+        this.storageManager = storageManager;
     }
 
-    // Este método es llamado por PdaServiceGrpcImpl cuando recibimos un fragmento
-    // por red
-    public void procesarFragmentoEntrante(String idArchivo, byte[] datosFragmento) {
-        System.out.println("StorageCoordinator: Fragmento recibido de red para el archivo: " + idArchivo + " ("
-                + datosFragmento.length + " bytes)");
+    public void setDistributedDirectory(DistributedDirectory distributedDirectory) {
+        this.distributedDirectory = distributedDirectory;
+    }
 
-        // // TODO : Usar StorageManager para escribir estos bytes al disco
-        // duro real
+    /**
+     * Invocado por FileWatcherService cuando el usuario coloca un archivo en ./archivos_entrada
+     */
+    public void manejarNuevoArchivoLocal(String rutaArchivo) {
+        System.out.println("[Coordinator] Evaluando nuevo archivo local: " + rutaArchivo);
+        
+        File archivo = new File(rutaArchivo);
+        if (!archivo.exists()) {
+            System.err.println("[Coordinator] Error: El archivo desapareció antes de procesarse.");
+            return;
+        }
+
+        String nombreArchivo = archivo.getName();
+        long tamanoBytes = archivo.length(); // Tu prueba era de 0-bytes, pero aquí ya soportamos reales
+
+        System.out.println("[Coordinator] Archivo: " + nombreArchivo + " | Tamaño: " + tamanoBytes + " bytes");
+
+        // FLUJO SIMULADO -- Falta implementar el envio de fragmentos por la red --
+        
+        // Pedir permiso/ubicación al líder o al quorum
+        if (quorumService != null) {
+            System.out.println("[Coordinator] Solicitando nodos al QuorumService para distribuir...");
+            // List<String> nodosDestino = quorumService.proposeAction(...);
+        } else {
+            System.out.println("[Coordinator] (Simulación) QuorumService no disponible. Asumiendo que hay espacio.");
+        }
+
+        // Fragmentar y Enviar por la red
+        if (networkService != null) {
+            System.out.println("[Coordinator] Enviando fragmentos vía NetworkService (gRPC)...");
+            // byte[] chunk = leerArchivo(archivo);
+            // networkService.sendChunk(nodoDestino, chunk);
+        } else {
+            System.out.println("[Coordinator] (Simulación) NetworkService no disponible. Simulación de envío completada.");
+        }
+
+        // Registrar en el directorio lógico
+        if (distributedDirectory != null) {
+            System.out.println("[Coordinator] Registrando metadatos en DistributedDirectory...");
+            // distributedDirectory.registrarUbicacion(nombreArchivo, nodosDestino);
+        }
+        
+        System.out.println("[Coordinator] ✅ Procesamiento de subida concluido para: " + nombreArchivo + "\n");
+    }
+
+    /**
+     * Invocado por PdaServiceGrpcImpl cuando OTRO nodo nos envía un fragmento para guardar
+     */
+    public void procesarFragmentoEntrante(String idArchivo, byte[] datosFragmento) {
+        System.out.println("\n[Coordinator] Recibiendo fragmento de red. ID: " + idArchivo + " | " + datosFragmento.length + " bytes");
+
+        if (storageManager != null) {
+            System.out.println("[Coordinator] Delegando escritura al disco mediante StorageManager...");
+            // boolean exito = storageManager.storeChunk(idArchivo, datosFragmento);
+            // return exito;
+        } else {
+            System.out.println("[Coordinator] (Simulación) StorageManager no disponible. Fingiendo que se guardó en el disco local.");
+        }
     }
 }
