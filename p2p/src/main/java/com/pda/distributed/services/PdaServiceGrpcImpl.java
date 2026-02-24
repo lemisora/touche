@@ -15,10 +15,12 @@ import io.grpc.stub.StreamObserver;
 public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
 
     private final QuorumService quorumService;
+    private final StateSyncService stateSyncService;
 
-    // Constructor que recibe el QuorumService
-    public PdaServiceGrpcImpl(QuorumService quorumService) {
+    // Constructor que recibe el QuorumService y StateSyncService
+    public PdaServiceGrpcImpl(QuorumService quorumService, StateSyncService stateSyncService) {
         this.quorumService = quorumService;
+        this.stateSyncService = stateSyncService;
     }
 
     @Override
@@ -31,7 +33,16 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
 
     @Override
     public void sincronizarEstado(PeticionEstado request, StreamObserver<RespuestaEstado> responseObserver) {
-        System.out.println("Recibido estado: " + request.getDatosEstado());
+        String estadoRecibido = request.getDatosEstado();
+
+        if (stateSyncService != null) {
+            // Pasamos puerto 0 como default ya que extraer IPs de grpc en java excede este
+            // alcance
+            stateSyncService.recibirEstado(estadoRecibido, 0);
+        } else {
+            System.err.println("GRPC: StateSyncService no inicializado!");
+        }
+
         responseObserver.onNext(RespuestaEstado.newBuilder().setExito(true).build());
         responseObserver.onCompleted();
     }

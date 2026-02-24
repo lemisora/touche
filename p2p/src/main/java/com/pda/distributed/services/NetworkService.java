@@ -27,10 +27,17 @@ public class NetworkService {
         this.quorumService = quorumService;
     }
 
+    // Permite al Nodo inyectar el servicio de StateSync
+    private StateSyncService stateSyncService;
+
+    public void setStateSyncService(StateSyncService stateSyncService) {
+        this.stateSyncService = stateSyncService;
+    }
+
     // Inicia el servidor escuchar a otros nodos
     public void startServer(int port) throws IOException {
         this.grpcServer = ServerBuilder.forPort(port)
-                .addService(new PdaServiceGrpcImpl(this.quorumService))
+                .addService(new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService))
                 .build();
         this.grpcServer.start();
         System.out.println("NetworkService: Servidor gRPC iniciado en puerto " + port);
@@ -94,6 +101,35 @@ public class NetworkService {
 
             } catch (Exception e) {
                 System.out.println("NetworkService: Error solicitando voto al puerto " + puertoDestino);
+            }
+        }
+    }
+
+    // Enviar el estado propio a todos los nodos conectados (Gossip)
+    public void sincronizarEstado(String miEstado) {
+        // System.out.println("NetworkService: Enviando estado a " + channels.size() + "
+        // nodos...");
+
+        com.pda.distributed.network.grpc.PeticionEstado peticion = com.pda.distributed.network.grpc.PeticionEstado
+                .newBuilder()
+                .setDatosEstado(miEstado)
+                .build();
+
+        for (Map.Entry<Integer, ManagedChannel> entry : channels.entrySet()) {
+            int puertoDestino = entry.getKey();
+            ManagedChannel canal = entry.getValue();
+
+            try {
+                // Para gossip, enviamos sin bloquear mucho tiempo
+                PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(canal);
+                com.pda.distributed.network.grpc.RespuestaEstado respuesta = stub.sincronizarEstado(peticion);
+
+                // System.out.println("NetworkService: Estado sincronizado con puerto " +
+                // puertoDestino + ". Confirmación: " + respuesta.getConfirmacion());
+
+            } catch (Exception e) {
+                System.out.println("NetworkService: Error sincronizando estado con el puerto " + puertoDestino
+                        + ". Puede que esté caído.");
             }
         }
     }

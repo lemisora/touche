@@ -2,6 +2,7 @@ package com.pda.distributed.core;
 
 import com.pda.distributed.services.NetworkService;
 import com.pda.distributed.services.QuorumService;
+import com.pda.distributed.services.StateSyncService;
 import java.io.IOException;
 
 // Facade principal del nodo
@@ -15,6 +16,7 @@ public class Nodo {
     // Servicios
     private final NetworkService networkService;
     private final QuorumService quorumService;
+    private final StateSyncService stateSyncService;
 
     public Nodo(int id, String ip, int port, String name, NodeRole initialRole) {
         this.id = id;
@@ -26,10 +28,13 @@ public class Nodo {
         // Instanciar servicios principal
         this.networkService = new NetworkService();
         this.quorumService = new QuorumService();
+        this.stateSyncService = new StateSyncService();
 
         // Inyectar dependencias (conectar cables)
         this.quorumService.setNetworkService(this.networkService);
         this.networkService.setQuorumService(this.quorumService);
+        this.stateSyncService.setNetworkService(this.networkService);
+        this.networkService.setStateSyncService(this.stateSyncService);
     }
 
     public void start() throws IOException {
@@ -38,6 +43,11 @@ public class Nodo {
 
         // Arrancar el servidor de red
         networkService.startServer(port);
+
+        // Si somos líderes, empezamos a latir
+        if (currentRole == NodeRole.LEADER) {
+            stateSyncService.iniciarGossip(port);
+        }
     }
 
     public void connectToPeer(String peerIp, int peerPort) {
@@ -55,6 +65,9 @@ public class Nodo {
 
     public void stop() throws InterruptedException {
         System.out.println("Deteniendo nodo " + name);
+        if (stateSyncService != null) {
+            stateSyncService.detenerGossip();
+        }
         networkService.stop();
     }
 
