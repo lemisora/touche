@@ -14,6 +14,13 @@ import io.grpc.stub.StreamObserver;
 // Implementación de los servicios gRPC
 public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
 
+    private final QuorumService quorumService;
+
+    // Constructor que recibe el QuorumService
+    public PdaServiceGrpcImpl(QuorumService quorumService) {
+        this.quorumService = quorumService;
+    }
+
     @Override
     public void ping(PingRequest request, StreamObserver<PingResponse> responseObserver) {
         System.out.println("Recibido ping: " + request.getMensajeSaludo());
@@ -31,8 +38,19 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
 
     @Override
     public void votar(PeticionVoto request, StreamObserver<RespuestaVoto> responseObserver) {
-        System.out.println("Recibido voto para accion: " + request.getIdAccion());
-        responseObserver.onNext(RespuestaVoto.newBuilder().setAcepta(true).build());
+        String idAccion = request.getIdAccion();
+        System.out.println("GRPC: Recibido voto para acción: " + idAccion);
+
+        // Simular que el voto siempre es a favor (para la práctica)
+        boolean votoAFavor = true;
+
+        if (quorumService != null) {
+            quorumService.recibirVoto(idAccion, votoAFavor);
+        } else {
+            System.err.println("GRPC: QuorumService no inicializado!");
+        }
+
+        responseObserver.onNext(RespuestaVoto.newBuilder().setAcepta(votoAFavor).build());
         responseObserver.onCompleted();
     }
 

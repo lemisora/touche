@@ -1,6 +1,7 @@
 package com.pda.distributed.core;
 
 import com.pda.distributed.services.NetworkService;
+import com.pda.distributed.services.QuorumService;
 import java.io.IOException;
 
 // Facade principal del nodo
@@ -13,6 +14,7 @@ public class Nodo {
 
     // Servicios
     private final NetworkService networkService;
+    private final QuorumService quorumService;
 
     public Nodo(int id, String ip, int port, String name, NodeRole initialRole) {
         this.id = id;
@@ -23,6 +25,11 @@ public class Nodo {
 
         // Instanciar servicios principal
         this.networkService = new NetworkService();
+        this.quorumService = new QuorumService();
+
+        // Inyectar dependencias (conectar cables)
+        this.quorumService.setNetworkService(this.networkService);
+        this.networkService.setQuorumService(this.quorumService);
     }
 
     public void start() throws IOException {
@@ -35,6 +42,15 @@ public class Nodo {
 
     public void connectToPeer(String peerIp, int peerPort) {
         networkService.sendPing(peerIp, peerPort);
+    }
+
+    // Expone la funcionalidad de proponer una acción al Quorum
+    public void proponer(String idAccion, String accion) {
+        if (currentRole == NodeRole.LEADER) {
+            quorumService.proponerAccion(idAccion, accion);
+        } else {
+            System.out.println("Nodo: Soy WORKER, no puedo proponer acciones al Quorum.");
+        }
     }
 
     public void stop() throws InterruptedException {

@@ -27,8 +27,9 @@ public class App {
         String ipDestino = args[1];
         int puertoDestino = Integer.parseInt(args[2]);
 
-        // Creamos el Nodo Facade (asignamos temporalmente ID 1 y rol WORKER)
-        Nodo miNodo = new Nodo(1, "localhost", miPuerto, "Nodo-" + miPuerto, NodeRole.WORKER);
+        // Creamos el Nodo Facade (asignamos temporalmente ID 1 y rol LEADER para
+        // probar)
+        Nodo miNodo = new Nodo(1, "localhost", miPuerto, "Nodo-" + miPuerto, NodeRole.LEADER);
 
         // Iniciar el Nodo (enciende su NetworkService internamente)
         miNodo.start();
@@ -40,6 +41,12 @@ public class App {
         if (miPuerto != puertoDestino) {
             System.out.println("El Nodo intentará conectarse a: " + ipDestino + ":" + puertoDestino);
             miNodo.connectToPeer(ipDestino, puertoDestino);
+
+            // --- PRUEBA DEL QUORUM ---
+            Thread.sleep(1000); // 1 seg para que guarde el canal
+            miNodo.proponer("ELECCION_PRINCIPAL", "Elegir a Nodo 3000 como líder principal");
+            // --------------------------
+
         } else {
             System.out.println("No se puede conectar con el mismo nodo");
         }
