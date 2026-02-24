@@ -1,5 +1,7 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import com.pda.distributed.storage.DistributedDirectory;
 import com.pda.distributed.storage.StorageManager;
 
@@ -29,8 +31,8 @@ public class StorageCoordinator {
     // Este método es llamado por el FileWatcherService cuando detecta un archivo
     // nuevo en la carpeta
     public void manejarNuevoArchivoLocal(String rutaArchivo) {
-        System.out.println("StorageCoordinator: Se detectó un nuevo archivo local en: " + rutaArchivo);
-        System.out.println("StorageCoordinator: Preparando para solicitar ubicación en el anillo...");
+        ConsoleLogger.info("Log", "StorageCoordinator: Se detectó un nuevo archivo local en: " + rutaArchivo);
+        ConsoleLogger.info("Log", "StorageCoordinator: Preparando para solicitar ubicación en el anillo...");
 
         // Aquí pediremos al Quorum o al Lider principal que nos asigne nodos
         // trabajadores
@@ -43,7 +45,7 @@ public class StorageCoordinator {
     // Este método es llamado por PdaServiceGrpcImpl cuando recibimos un fragmento
     // por red
     public void procesarFragmentoEntrante(String idArchivo, byte[] datosFragmento) {
-        System.out.println("StorageCoordinator: Fragmento recibido de red para el archivo: " + idArchivo + " ("
+        ConsoleLogger.info("StorageCoordinator", "Fragmento recibido de red para el archivo: " + idArchivo + " ("
                 + datosFragmento.length + " bytes)");
 
         // // TODO : Usar StorageManager para escribir estos bytes al disco

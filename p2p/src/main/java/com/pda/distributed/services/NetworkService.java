@@ -1,5 +1,7 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
@@ -18,6 +20,56 @@ public class NetworkService {
     private Server grpcServer;
     // Guardamos los canales para no crearlos a cada rato
     private final Map<Integer, ManagedChannel> channels = new ConcurrentHashMap<>();
+
+    // Tolerancia a fallos
+    private final Map<Integer, String> hostMap = new ConcurrentHashMap<>();
+    private final java.util.Set<Integer> nodosMuertos = ConcurrentHashMap.newKeySet();
+    private Thread hiloReconexion;
+    private boolean activoReconexion = false;
+
+    public NetworkService() {
+        iniciarHiloReconexion();
+    }
+
+    private void iniciarHiloReconexion() {
+        activoReconexion = true;
+        hiloReconexion = new Thread(() -> {
+            while (activoReconexion) {
+                try {
+                    Thread.sleep(10000); // Intenta revivir nodos cada 10 segundos
+                    for (Integer puertoMuerto : nodosMuertos) {
+                        String host = hostMap.get(puertoMuerto);
+                        if (host != null) {
+                            try {
+                                ManagedChannel channel = ManagedChannelBuilder.forAddress(host, puertoMuerto)
+                                        .usePlaintext()
+                                        .build();
+                                PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(channel);
+                                PingRequest request = PingRequest.newBuilder().setMensajeSaludo("Ping de reconexion")
+                                        .build();
+                                PingResponse response = stub.ping(request);
+
+                                if (response.getExito()) {
+                                    System.out.println("NetworkService: ¡Reconexión EXITOSA con el puerto "
+                                            + puertoMuerto + " que estaba muerto!");
+                                    channels.put(puertoMuerto, channel);
+                                    nodosMuertos.remove(puertoMuerto);
+                                } else {
+                                    channel.shutdown();
+                                }
+                            } catch (Exception e) {
+                                // Sigue muerto, intentará en los próximos 10 segundos
+                            }
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    ConsoleLogger.info("Log", "NetworkService: Hilo de reconexión interrumpido.");
+                    activoReconexion = false;
+                }
+            }
+        });
+        hiloReconexion.start();
+    }
 
     // Referencia al servicio de Quorum para enviarle los votos entrantes
     private QuorumService quorumService;
@@ -40,11 +92,12 @@ public class NetworkService {
                 .addService(new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService, storageCoordinator))
                 .build();
         this.grpcServer.start();
-        System.out.println("NetworkService: Servidor gRPC iniciado en puerto " + port);
+        ConsoleLogger.info("Log", "NetworkService: Servidor gRPC iniciado en puerto " + port);
     }
 
     // Funcionalidad de ping
     public void sendPing(String host, int port) {
+        hostMap.put(port, host); // Guardar host para futura reconexion si muere
         ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port)
                 .usePlaintext()
                 .build();
@@ -56,10 +109,10 @@ public class NetworkService {
         while (!conectado) {
             try {
                 PingResponse response = stub.ping(request);
-                System.out.println("Respuesta del otro nodo (" + port + "): " + response.getRespuesta());
+                ConsoleLogger.info("Log", "Respuesta del otro nodo (" + port + "): " + response.getRespuesta());
                 conectado = true;
             } catch (io.grpc.StatusRuntimeException e) {
-                System.out.println("El nodo destino " + port + " no está listo. Reintentando en 3 segundos...");
+                ConsoleLogger.info("Log", "El nodo destino " + port + " no está listo. Reintentando en 3 segundos...");
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException ie) {
@@ -74,8 +127,8 @@ public class NetworkService {
 
     // Enviar una propuesta de votación a todos los nodos conectados actualmente
     public void solicitarVotos(String idAccion) {
-        System.out.println(
-                "NetworkService: Enviando petición de voto para '" + idAccion + "' a " + channels.size() + " nodos...");
+        ConsoleLogger.info("NetworkService",
+                "Enviando petición de voto para '" + idAccion + "' a " + channels.size() + " nodos...");
 
         com.pda.distributed.network.grpc.PeticionVoto peticion = com.pda.distributed.network.grpc.PeticionVoto
                 .newBuilder()
@@ -92,7 +145,7 @@ public class NetworkService {
                 PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(canal);
                 com.pda.distributed.network.grpc.RespuestaVoto respuesta = stub.votar(peticion);
 
-                System.out.println("NetworkService: Respuesta de voto recibida del puerto " + puertoDestino + ": "
+                ConsoleLogger.info("NetworkService", "Respuesta de voto recibida del puerto " + puertoDestino + ": "
                         + (respuesta.getAcepta() ? "Aceptó" : "Rechazó"));
 
                 // Si tuviéramos acceso a QuorumService aquí, le pasaríamos la respuesta
@@ -100,7 +153,7 @@ public class NetworkService {
                 // Pero lo conectaremos en el Orquestador (Facade) o pasando una referencia
 
             } catch (Exception e) {
-                System.out.println("NetworkService: Error solicitando voto al puerto " + puertoDestino);
+                ConsoleLogger.info("Log", "NetworkService: Error solicitando voto al puerto " + puertoDestino);
             }
         }
     }
@@ -128,13 +181,27 @@ public class NetworkService {
                 // puertoDestino + ". Confirmación: " + respuesta.getConfirmacion());
 
             } catch (Exception e) {
-                System.out.println("NetworkService: Error sincronizando estado con el puerto " + puertoDestino
-                        + ". Puede que esté caído.");
+                // System.out.println("NetworkService: Error sincronizando estado con el puerto
+                // " + puertoDestino + ". Puede que esté caído.");
             }
         }
     }
 
+    // Desconecta limpiamente el canal gRPC de un nodo que se considera muerto
+    public void desconectarNodo(int puerto) {
+        ManagedChannel channel = channels.remove(puerto);
+        if (channel != null) {
+            channel.shutdown();
+            nodosMuertos.add(puerto);
+            ConsoleLogger.info("Log", "NetworkService: Canal cerrado y movido a nodos muertos: puerto " + puerto);
+        }
+    }
+
     public void stop() throws InterruptedException {
+        activoReconexion = false;
+        if (hiloReconexion != null) {
+            hiloReconexion.interrupt();
+        }
         for (ManagedChannel channel : channels.values()) {
             channel.shutdown();
         }

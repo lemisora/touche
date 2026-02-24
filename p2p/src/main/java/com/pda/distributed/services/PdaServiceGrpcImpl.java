@@ -1,5 +1,7 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import com.pda.distributed.network.grpc.PdaServiceGrpc;
 import com.pda.distributed.network.grpc.PeticionEstado;
 import com.pda.distributed.network.grpc.PeticionSubida;
@@ -28,7 +30,7 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
 
     @Override
     public void ping(PingRequest request, StreamObserver<PingResponse> responseObserver) {
-        System.out.println("Recibido ping: " + request.getMensajeSaludo());
+        ConsoleLogger.info("Log", "Recibido ping: " + request.getMensajeSaludo());
         PingResponse response = PingResponse.newBuilder().setExito(true).setRespuesta("Pong").build();
         responseObserver.onNext(response);
         responseObserver.onCompleted();
@@ -43,7 +45,7 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
             // alcance
             stateSyncService.recibirEstado(estadoRecibido, 0);
         } else {
-            System.err.println("GRPC: StateSyncService no inicializado!");
+            ConsoleLogger.error("Error", "GRPC: StateSyncService no inicializado!");
         }
 
         responseObserver.onNext(RespuestaEstado.newBuilder().setExito(true).build());
@@ -53,7 +55,7 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
     @Override
     public void votar(PeticionVoto request, StreamObserver<RespuestaVoto> responseObserver) {
         String idAccion = request.getIdAccion();
-        System.out.println("GRPC: Recibido voto para acción: " + idAccion);
+        ConsoleLogger.info("Log", "GRPC: Recibido voto para acción: " + idAccion);
 
         // Simular que el voto siempre es a favor (para la práctica)
         boolean votoAFavor = true;
@@ -61,7 +63,7 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
         if (quorumService != null) {
             quorumService.recibirVoto(idAccion, votoAFavor);
         } else {
-            System.err.println("GRPC: QuorumService no inicializado!");
+            ConsoleLogger.error("Error", "GRPC: QuorumService no inicializado!");
         }
 
         responseObserver.onNext(RespuestaVoto.newBuilder().setAcepta(votoAFavor).build());
@@ -73,12 +75,12 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
         String idArchivo = request.getIdArchivo();
         byte[] fragmento = request.getFragmento().toByteArray();
 
-        System.out.println("GRPC: Recibida peticion de subir archivo: " + idArchivo);
+        ConsoleLogger.info("Log", "GRPC: Recibida peticion de subir archivo: " + idArchivo);
 
         if (storageCoordinator != null) {
             storageCoordinator.procesarFragmentoEntrante(idArchivo, fragmento);
         } else {
-            System.err.println("GRPC: StorageCoordinator no inicializado!");
+            ConsoleLogger.error("Error", "GRPC: StorageCoordinator no inicializado!");
         }
 
         responseObserver.onNext(RespuestaSubida.newBuilder().setExito(true).build());

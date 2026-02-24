@@ -1,5 +1,7 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import java.util.Set;
 import java.util.HashSet;
 import java.io.File;
@@ -34,13 +36,13 @@ public class FileWatcherService {
     public void iniciar() {
         activo = true;
         hiloObservador = new Thread(() -> {
-            System.out.println("FileWatcher: Iniciando vigilancia en la carpeta '" + rutaCarpeta + "'...");
+            ConsoleLogger.info("Log", "FileWatcher: Iniciando vigilancia en la carpeta '" + rutaCarpeta + "'...");
             while (activo) {
                 try {
                     buscarArchivosNuevos();
                     Thread.sleep(3000); // Revisa cada 3 segundos
                 } catch (InterruptedException e) {
-                    System.out.println("FileWatcher: Hilo interrumpido.");
+                    ConsoleLogger.info("Log", "FileWatcher: Hilo interrumpido.");
                     activo = false;
                 }
             }
@@ -78,7 +80,7 @@ public class FileWatcherService {
         if (storageCoordinator != null) {
             storageCoordinator.manejarNuevoArchivoLocal(rutaAbsoluta);
         } else {
-            System.err.println("FileWatcher: StorageCoordinator no inicializado.");
+            ConsoleLogger.error("Error", "FileWatcher: StorageCoordinator no inicializado.");
         }
     }
 }

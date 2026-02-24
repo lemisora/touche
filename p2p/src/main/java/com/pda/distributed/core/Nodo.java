@@ -1,5 +1,7 @@
 package com.pda.distributed.core;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import com.pda.distributed.services.NetworkService;
 import com.pda.distributed.services.QuorumService;
 import com.pda.distributed.services.StateSyncService;
@@ -49,8 +51,8 @@ public class Nodo {
     }
 
     public void start() throws IOException {
-        System.out.println("--- Iniciando Nodo " + name + " ---");
-        System.out.println("ID: " + id + " | IP: " + ip + " | Puerto: " + port + " | Rol: " + currentRole);
+        ConsoleLogger.info("Log", "--- Iniciando Nodo " + name + " ---");
+        ConsoleLogger.info("Log", "ID: " + id + " | IP: " + ip + " | Puerto: " + port + " | Rol: " + currentRole);
 
         // Arrancar el servidor de red pasándole nuestra lógica actual
         networkService.startServer(port, storageCoordinator);
@@ -71,12 +73,12 @@ public class Nodo {
         if (currentRole == NodeRole.LEADER) {
             quorumService.proponerAccion(idAccion, accion);
         } else {
-            System.out.println("Nodo: Soy WORKER, no puedo proponer acciones al Quorum.");
+            ConsoleLogger.info("Log", "Nodo: Soy WORKER, no puedo proponer acciones al Quorum.");
         }
     }
 
     public void stop() throws InterruptedException {
-        System.out.println("Deteniendo nodo " + name);
+        ConsoleLogger.info("Log", "Deteniendo nodo " + name);
         if (stateSyncService != null) {
             stateSyncService.detenerGossip();
         }
@@ -89,12 +91,12 @@ public class Nodo {
 
     public void promoteToLeader() {
         this.currentRole = NodeRole.LEADER;
-        System.out.println("Nodo ha sido promovido a LIDER");
+        ConsoleLogger.info("Log", "Nodo ha sido promovido a LIDER");
     }
 
     public void demoteToWorker() {
         this.currentRole = NodeRole.WORKER;
-        System.out.println("Nodo ha sido degradado a TRABAJADOR");
+        ConsoleLogger.info("Log", "Nodo ha sido degradado a TRABAJADOR");
     }
 
     public NodeRole getRole() {
