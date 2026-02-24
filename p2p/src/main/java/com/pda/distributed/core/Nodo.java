@@ -5,6 +5,9 @@ import com.pda.distributed.services.QuorumService;
 import com.pda.distributed.services.StateSyncService;
 import com.pda.distributed.services.StorageCoordinator;
 import com.pda.distributed.services.FileWatcherService;
+import com.pda.distributed.storage.DistributedDirectory;
+import com.pda.distributed.storage.StorageManager;
+
 import java.io.IOException;
 
 // Facade principal del nodo
@@ -15,12 +18,16 @@ public class Nodo {
     private final String name;
     private NodeRole currentRole;
 
-    // Servicios
+    // Servicios de Red y Consenso
     private final NetworkService networkService;
     private final QuorumService quorumService;
     private final StateSyncService stateSyncService;
+
+    // Servicios de Almacenamiento (¡Tu subsistema!)
     private final StorageCoordinator storageCoordinator;
     private final FileWatcherService fileWatcherService;
+    private final StorageManager storageManager;
+    private final DistributedDirectory distributedDirectory;
 
     public Nodo(int id, String ip, int port, String name, NodeRole initialRole) {
         this.id = id;
@@ -29,22 +36,28 @@ public class Nodo {
         this.name = name;
         this.currentRole = initialRole;
 
-        // Instanciar servicios principal
+        // 1. Instanciar todos los servicios
         this.networkService = new NetworkService();
         this.quorumService = new QuorumService();
         this.stateSyncService = new StateSyncService();
         this.storageCoordinator = new StorageCoordinator();
         this.fileWatcherService = new FileWatcherService();
+        this.storageManager = new StorageManager();
+        this.distributedDirectory = new DistributedDirectory();
 
-        // Inyectar dependencias (conectar cables)
+        // 2. Inyectar dependencias (Conectar los cables de Red y Consenso)
         this.quorumService.setNetworkService(this.networkService);
         this.networkService.setQuorumService(this.quorumService);
         this.stateSyncService.setNetworkService(this.networkService);
         this.networkService.setStateSyncService(this.stateSyncService);
 
-        // Cables de Storage
+        // 3. Inyectar dependencias (Conectar TUS cables de Storage)
         this.storageCoordinator.setNetworkService(this.networkService);
         this.storageCoordinator.setQuorumService(this.quorumService);
+        this.storageCoordinator.setStorageManager(this.storageManager);
+        this.storageCoordinator.setDistributedDirectory(this.distributedDirectory);
+
+        // El vigía necesita conocer a su coordinador
         this.fileWatcherService.setStorageCoordinator(this.storageCoordinator);
     }
 
@@ -55,10 +68,19 @@ public class Nodo {
         // Arrancar el servidor de red pasándole nuestra lógica actual
         networkService.startServer(port, storageCoordinator);
 
-        // Si somos líderes, empezamos a latir y a vigilar archivos
+        // Actualizamos el directorio global indicando que este nodo (nosotros mismos) está activo y reportamos el espacio libre
+        String miIdNodo = this.ip + ":" + this.port;
+        long miEspacioLibre = storageManager.obtenerEspacioDisponible();
+        distributedDirectory.actualizarEstadoNodo(miIdNodo, miEspacioLibre);
+
+        // Comportamiento según el rol inicial
         if (currentRole == NodeRole.LEADER) {
             stateSyncService.iniciarGossip(port);
             fileWatcherService.iniciar();
+        } else {
+            // Un worker también podría iniciar su FileWatcher si permiten subir archivos desde cualquier nodo,
+            // pero si la regla actual es que solo el líder recibe archivos, lo dejamos así.
+            System.out.println("Nodo: Soy WORKER. Esperando instrucciones y fragmentos...");
         }
     }
 
@@ -80,6 +102,9 @@ public class Nodo {
         if (stateSyncService != null) {
             stateSyncService.detenerGossip();
         }
+        if (fileWatcherService != null) {
+            fileWatcherService.detener();
+        }
         networkService.stop();
     }
 
@@ -90,11 +115,17 @@ public class Nodo {
     public void promoteToLeader() {
         this.currentRole = NodeRole.LEADER;
         System.out.println("Nodo ha sido promovido a LIDER");
+
+        // Si me vuelvo líder, arranco los servicios exclusivos de líder
+        fileWatcherService.iniciar();
     }
 
     public void demoteToWorker() {
         this.currentRole = NodeRole.WORKER;
         System.out.println("Nodo ha sido degradado a TRABAJADOR");
+
+        // Si pierdo el liderazgo, detengo la vigilancia de archivos exclusivos
+        fileWatcherService.detener();
     }
 
     public NodeRole getRole() {
