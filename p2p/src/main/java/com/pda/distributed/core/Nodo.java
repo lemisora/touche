@@ -8,81 +8,104 @@ import com.pda.distributed.services.StateSyncService;
 import com.pda.distributed.services.StorageCoordinator;
 import com.pda.distributed.services.FileWatcherService;
 import com.pda.distributed.services.DiscoveryService;
+
+import com.pda.distributed.storage.DistributedDirectory;
+import com.pda.distributed.storage.StorageManager;
+
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 
 // Facade principal del nodo
 public class Nodo {
     private final int id;
     private final String ip;
-    private final int port;
+    private int port;
     private final String name;
     private NodeRole currentRole;
 
-    // Servicios
+    // Servicios de Red y Consenso
     private final NetworkService networkService;
     private final QuorumService quorumService;
     private final StateSyncService stateSyncService;
-    private final StorageCoordinator storageCoordinator;
-    private final FileWatcherService fileWatcherService;
     private final DiscoveryService discoveryService;
 
-    public Nodo(int id, String ip, int port, String name, NodeRole initialRole) {
+    // Servicios de Almacenamiento
+    private final StorageCoordinator storageCoordinator;
+    private final FileWatcherService fileWatcherService;
+    private final StorageManager storageManager;
+    private final DistributedDirectory distributedDirectory;
+
+    // Variables del Anillo
+    private Thread ringWatchdog;
+    private boolean watchdogActivo = false;
+    private String currentRingId = "A";
+
+    public Nodo(int id, String ip, String name, NodeRole initialRole) {
         this.id = id;
         this.ip = ip;
-        this.port = port;
         this.name = name;
         this.currentRole = initialRole;
 
-        // Instanciar servicios principal
+        // Instanciar servicios
         this.networkService = new NetworkService();
         this.quorumService = new QuorumService();
         this.stateSyncService = new StateSyncService();
+        this.discoveryService = new DiscoveryService();
+        
         this.storageCoordinator = new StorageCoordinator();
         this.fileWatcherService = new FileWatcherService();
-        this.discoveryService = new DiscoveryService();
+        this.storageManager = new StorageManager();
+        this.distributedDirectory = new DistributedDirectory();
 
-        // Inyectar dependencias (conectar cables)
+        // Inyectar dependencias de Red
         this.quorumService.setNetworkService(this.networkService);
         this.networkService.setQuorumService(this.quorumService);
         this.stateSyncService.setNetworkService(this.networkService);
         this.networkService.setStateSyncService(this.stateSyncService);
-
-        // Cables de Discovery
         this.discoveryService.setNetworkService(this.networkService);
 
-        // Cables de Storage
+        // Dependencias de Storage
         this.storageCoordinator.setNetworkService(this.networkService);
         this.storageCoordinator.setQuorumService(this.quorumService);
+        this.storageCoordinator.setStorageManager(this.storageManager);
+        this.storageCoordinator.setDistributedDirectory(this.distributedDirectory);
         this.fileWatcherService.setStorageCoordinator(this.storageCoordinator);
     }
 
     public void start() throws IOException {
         ConsoleLogger.info("Log", "--- Iniciando Nodo " + name + " ---");
-        ConsoleLogger.info("Log", "ID: " + id + " | IP: " + ip + " | Puerto: " + port + " | Rol: " + currentRole);
-
+        
         // Arrancar el servidor de red recibiendo el puerto aleatorio libre elegido
-        int assignedPort = networkService.startServer(storageCoordinator);
-        ConsoleLogger.info("Log", "Puerto asignado: " + assignedPort + ". Iniciando Discovery UDP...");
+        this.port = networkService.startServer(storageCoordinator);
+        ConsoleLogger.info("Log", "Puerto asignado: " + this.port + ". Iniciando Discovery UDP...");
 
-        // Iniciamos el servicio de UDP Broadcast indicando en qué puerto TCP debe
-        // escuchar la otra gente
-        discoveryService.iniciar(assignedPort);
+        // Iniciamos el servicio de UDP Broadcast
+        discoveryService.iniciar(this.port);
 
-        // Si somos líderes, empezamos a latir y a vigilar archivos
+        // Registrar nuestro propio almacenamiento local en el directorio
+        String miIdNodo = this.ip + ":" + this.port;
+        long miEspacioLibre = storageManager.obtenerEspacioDisponible();
+        distributedDirectory.actualizarEstadoNodo(miIdNodo, miEspacioLibre);
+
+        // Iniciamos el vigía de archivos para que detecte nuevos documentos
+        fileWatcherService.iniciar();
+
+        // Si somos líderes, empezamos a latir
         if (currentRole == NodeRole.LEADER) {
-            stateSyncService.iniciarGossip(assignedPort);
-            fileWatcherService.iniciar();
+            stateSyncService.iniciarGossip(this.port);
         }
 
         // Iniciar el vigilante de los anillos
         iniciarWatchdog();
+        
+        ConsoleLogger.info("Log", "ID: " + id + " | IP: " + ip + " | Puerto: " + port + " | Rol: " + currentRole);
     }
 
     public void connectToPeer(String peerIp, int peerPort) {
         networkService.sendPing(peerIp, peerPort);
     }
 
-    // Expone la funcionalidad de proponer una acción al Quorum
     public void proponer(String idAccion, String accion) {
         if (currentRole == NodeRole.LEADER) {
             quorumService.proponerAccion(idAccion, accion);
@@ -94,15 +117,10 @@ public class Nodo {
     public void stop() throws InterruptedException {
         ConsoleLogger.info("Log", "Deteniendo nodo " + name);
         watchdogActivo = false;
-        if (ringWatchdog != null) {
-            ringWatchdog.interrupt();
-        }
-        if (stateSyncService != null) {
-            stateSyncService.detenerGossip();
-        }
-        if (discoveryService != null) {
-            discoveryService.detener();
-        }
+        if (ringWatchdog != null) ringWatchdog.interrupt();
+        if (stateSyncService != null) stateSyncService.detenerGossip();
+        if (discoveryService != null) discoveryService.detener();
+        if (fileWatcherService != null) fileWatcherService.detener();
         networkService.stop();
     }
 
@@ -120,22 +138,11 @@ public class Nodo {
         ConsoleLogger.info("Log", "Nodo ha sido degradado a TRABAJADOR");
     }
 
-    public NodeRole getRole() {
-        return currentRole;
-    }
+    public NodeRole getRole() { return currentRole; }
+    public int getPort() { return port; }
+    public String getIp() { return ip; }
 
-    public int getPort() {
-        return port;
-    }
-
-    public String getIp() {
-        return ip;
-    }
-
-    private Thread ringWatchdog;
-    private boolean watchdogActivo = false;
-    private String currentRingId = "A";
-
+    // Lógica de anillos
     private void iniciarWatchdog() {
         watchdogActivo = true;
         ringWatchdog = new Thread(() -> {
@@ -143,18 +150,14 @@ public class Nodo {
                 try {
                     Thread.sleep(5000); // Revisar cada 5 segundos
 
-                    // Si ya nos dividimos o somos worker, no hacemos nada extra por ahora
                     if (!currentRingId.equals("A") || currentRole == NodeRole.WORKER) {
                         continue;
                     }
 
-                    // Total de Nodos en mi anillo = Mis conexiones + yo mismo
                     int totalNodos = networkService.getConnectedNodesCount() + 1;
 
-                    // Si llegamos a 6 nodos en el anillo A, desencadenamos la separación
                     if (totalNodos >= 6) {
-                        ConsoleLogger.advertencia("Log",
-                                "¡Nivel crítico de nodos (6)! Iniciando Sharding de Anillos...");
+                        ConsoleLogger.advertencia("Log", "¡Nivel crítico de nodos (6)! Iniciando Sharding de Anillos...");
                         dividirAnillos();
                     }
 
@@ -168,15 +171,10 @@ public class Nodo {
     }
 
     private void dividirAnillos() {
-        // Obtenemos todos los puertos conectados y nos añadimos a la lista
-        java.util.List<Integer> todosLosPuertos = networkService.getConnectedPorts();
+        List<Integer> todosLosPuertos = networkService.getConnectedPorts();
         todosLosPuertos.add(this.port);
+        Collections.sort(todosLosPuertos);
 
-        // Ordenamos la lista para que todos los nodos vean el mismo orden
-        // (Determinismo)
-        java.util.Collections.sort(todosLosPuertos);
-
-        // Los 3 menores se quedan en el Anillo A, los 3 mayores van al Anillo B
         int miIndice = todosLosPuertos.indexOf(this.port);
 
         if (miIndice >= 3) {
@@ -189,8 +187,7 @@ public class Nodo {
 
         // Cortamos las conexiones con los nodos del anillo opuesto
         for (Integer p : todosLosPuertos) {
-            if (p == this.port)
-                continue;
+            if (p == this.port) continue;
 
             int suIndice = todosLosPuertos.indexOf(p);
             boolean esDelAnilloB = (suIndice >= 3);
