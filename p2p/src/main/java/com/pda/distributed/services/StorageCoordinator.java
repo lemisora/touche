@@ -1,5 +1,7 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import com.pda.distributed.storage.DistributedDirectory;
 import com.pda.distributed.storage.StorageManager;
 
@@ -49,6 +51,8 @@ public class StorageCoordinator {
             System.err.println("[Coordinator] Error: El archivo desapareció antes de procesarse.");
             return;
         }
+        ConsoleLogger.info("Log", "StorageCoordinator: Se detectó un nuevo archivo local en: " + rutaArchivo);
+        ConsoleLogger.info("Log", "StorageCoordinator: Preparando para solicitar ubicación en el anillo...");
 
         String nombreArchivo = archivo.getName();
         long tamanoBytes = archivo.length(); // Tu prueba era de 0-bytes, pero aquí ya soportamos reales
@@ -87,7 +91,8 @@ public class StorageCoordinator {
      * Invocado por PdaServiceGrpcImpl cuando OTRO nodo nos envía un fragmento para guardar
      */
     public void procesarFragmentoEntrante(String idArchivo, byte[] datosFragmento) {
-        System.out.println("\n[Coordinator] Recibiendo fragmento de red. ID: " + idArchivo + " | " + datosFragmento.length + " bytes");
+        ConsoleLogger.info("StorageCoordinator", "Fragmento recibido de red para el archivo: " + idArchivo + " ("
+                + datosFragmento.length + " bytes)");
 
         if (storageManager != null) {
             System.out.println("[Coordinator] Delegando escritura al disco mediante StorageManager...");

@@ -1,5 +1,7 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -39,13 +41,13 @@ public class StateSyncService {
                     detectarLideresMuertos();
 
                 } catch (InterruptedException e) {
-                    System.out.println("StateSync: Hilo de sincronización interrumpido.");
+                    ConsoleLogger.info("Log", "StateSync: Hilo de sincronización interrumpido.");
                     activo = false;
                 }
             }
         });
         hiloGossip.start();
-        System.out.println("StateSync: Hilo de Gossip (latido) iniciado...");
+        ConsoleLogger.info("Log", "StateSync: Hilo de Gossip (latido) iniciado...");
     }
 
     public void detenerGossip() {
@@ -71,8 +73,9 @@ public class StateSyncService {
         long tiempoActual = System.currentTimeMillis();
         ultimaConexion.put(puertoOrigen, tiempoActual);
 
-        System.out.println("StateSync: Estado recibido de puerto " + puertoOrigen + ". Actualizando marca de tiempo a "
-                + tiempoActual);
+        ConsoleLogger.info("StateSync",
+                "Estado recibido de puerto " + puertoOrigen + ". Actualizando marca de tiempo a "
+                        + tiempoActual);
     }
 
     // Revisa cuáles nodos llevan mucho tiempo sin reportarse (detectDeadLeaders en
@@ -88,10 +91,14 @@ public class StateSyncService {
             long ultimaVez = nodo.getValue();
 
             if (tiempoActual - ultimaVez > tiempoMaximoInactivo) {
-                System.out.println("¡ALERTA! El nodo en el puerto " + puerto + " lleva " + (tiempoActual - ultimaVez)
-                        + "ms sin responder. Declarando MUERTO.");
-                // Aquí deberíamos decirle a NetworkService que corte la conexión
-                // y sacarlo de la libreta de direcciones
+                ConsoleLogger.error("StateSync",
+                        "¡ALERTA! El nodo en el puerto " + puerto + " lleva " + (tiempoActual - ultimaVez)
+                                + "ms sin responder. Declarando MUERTO.");
+
+                if (networkService != null) {
+                    networkService.desconectarNodo(puerto);
+                }
+
                 ultimaConexion.remove(puerto);
             }
         }

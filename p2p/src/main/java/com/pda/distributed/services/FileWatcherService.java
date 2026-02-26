@@ -3,6 +3,8 @@ package com.pda.distributed.services;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.Collections;
+import com.pda.distributed.utils.ConsoleLogger;
+
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -43,12 +45,14 @@ public class FileWatcherService {
     }
 
     public void iniciar() {
-        if (activo) return; // Evitar iniciar dos veces
+        if (activo)
+            return; // Evitar iniciar dos veces
         activo = true;
 
         hiloObservador = new Thread(this::observarDirectorioEntrada, "FileWatcherThread");
         hiloObservador.start();
-        System.out.println("FileWatcher: Iniciando vigilancia en '" + directorioEntrada + "'...");
+        ConsoleLogger.info("Log",
+                "FileWatcher: Iniciando vigilancia en la carpeta '" + directorioEntrada.toAbsolutePath() + "'...");
     }
 
     public void detener() {
@@ -56,13 +60,14 @@ public class FileWatcherService {
         if (hiloObservador != null) {
             hiloObservador.interrupt(); // Despertamos al hilo si está bloqueado esperando
         }
-        System.out.println("FileWatcher: Servicio detenido.");
+        ConsoleLogger.info("Log", "FileWatcher: Servicio detenido.");
     }
 
     private void observarDirectorioEntrada() {
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
 
-            // Le decimos al OS que queremos saber si se CREAN cosas en la carpeta de entrada
+            // Le decimos al OS que queremos saber si se CREAN cosas en la carpeta de
+            // entrada
             directorioEntrada.register(watchService, StandardWatchEventKinds.ENTRY_CREATE);
 
             while (activo) {
@@ -78,7 +83,8 @@ public class FileWatcherService {
                 for (WatchEvent<?> event : key.pollEvents()) {
                     WatchEvent.Kind<?> kind = event.kind();
 
-                    if (kind == StandardWatchEventKinds.OVERFLOW) continue;
+                    if (kind == StandardWatchEventKinds.OVERFLOW)
+                        continue;
 
                     @SuppressWarnings("unchecked")
                     WatchEvent<Path> ev = (WatchEvent<Path>) event;
@@ -94,7 +100,7 @@ public class FileWatcherService {
                 }
             }
         } catch (IOException e) {
-            System.err.println("FileWatcher: Error crítico en la vigilancia: " + e.getMessage());
+            ConsoleLogger.error("FileWatcher", "Error crítico en la vigilancia: " + e.getMessage());
         }
     }
 
@@ -103,12 +109,14 @@ public class FileWatcherService {
 
         // .add devuelve true si el archivo no estaba en la lista
         if (archivosProcesados.add(nombreArchivo)) {
-            System.out.println("\n[FileWatcher] ¡Nuevo archivo detectado en la bandeja de entrada!: " + nombreArchivo);
+            ConsoleLogger.info("FileWatcher", "¡Nuevo archivo detectado en la bandeja de entrada!: " + nombreArchivo);
+
             if (storageCoordinator != null) {
-                // Convertimos a String para mantener compatibilidad con el código actual del coordinador
+                // Convertimos a String para mantener compatibilidad con el código actual del
+                // coordinador
                 storageCoordinator.manejarNuevoArchivoLocal(rutaArchivo.toAbsolutePath().toString());
             } else {
-                System.err.println("[FileWatcher] Error: StorageCoordinator no inicializado.");
+                ConsoleLogger.error("FileWatcher", "StorageCoordinator no inicializado.");
             }
         }
     }

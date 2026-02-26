@@ -1,5 +1,7 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.utils.ConsoleLogger;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -30,7 +32,7 @@ public class QuorumService {
 
     // Método para proponer una votación a la red
     public void proponerAccion(String idAccion, String accion) {
-        System.out.println("Quorum: Proponiendo acción '" + idAccion + "': " + accion);
+        ConsoleLogger.info("Log", "Quorum: Proponiendo acción '" + idAccion + "': " + accion);
 
         // Empezamos votando por nosotros mismos (el nodo que propone aprueba su propia
         // idea)
@@ -38,10 +40,10 @@ public class QuorumService {
 
         // Usamos NetworkService para mandar esta propuesta a todos los otros Líderes
         if (networkService != null) {
-            System.out.println("Quorum: Enviando propuesta a la red...");
+            ConsoleLogger.info("Log", "Quorum: Enviando propuesta a la red...");
             networkService.solicitarVotos(idAccion);
         } else {
-            System.err.println("Quorum: NetworkService no inicializado!");
+            ConsoleLogger.error("Error", "Quorum: NetworkService no inicializado!");
         }
     }
 
@@ -58,7 +60,7 @@ public class QuorumService {
             // Verificamos si ya ganamos
             verificarQuorum(idAccion);
         } else {
-            System.out.println("Quorum: Voto en contra recibido para '" + idAccion + "'");
+            ConsoleLogger.info("Log", "Quorum: Voto en contra recibido para '" + idAccion + "'");
         }
     }
 
@@ -67,7 +69,7 @@ public class QuorumService {
         int votos = votosActivos.getOrDefault(idAccion, 0);
 
         if (votos >= votosRequeridos) {
-            System.out.println(">>> QUORUM ALCANZADO para la acción: " + idAccion + " <<<");
+            ConsoleLogger.info("Log", ">>> QUORUM ALCANZADO para la acción: " + idAccion + " <<<");
             // Aquí se ejecutaría la acción aprobada...
             return true;
         }
