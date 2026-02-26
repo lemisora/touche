@@ -1,66 +1,59 @@
 package com.pda.distributed;
 
-import com.pda.distributed.utils.ConsoleLogger;
-
-import java.io.IOException;
-
 import com.pda.distributed.core.Nodo;
 import com.pda.distributed.core.NodeRole;
+import com.pda.distributed.utils.ConsoleLogger;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
-public class App {
-    /*
-     * Uso: mvn compile exec:java -Dexec.mainClass="com.pda.distributed.App"
-     */
-    public static void main(String[] args) throws IOException, InterruptedException {
+import java.util.concurrent.Callable;
 
-        // Ahora no necesitamos pasar puertos por argumento, porque el NetworkService
-        // elegirá uno a partir de 50000
-        // y el DiscoveryService los encontrará.
+@Command(name = "nodo-p2p", mixinStandardHelpOptions = true, version = "1.0",
+        description = "Inicia un nodo P2P con auto-descubrimiento UDP y almacenamiento distribuido.")
+public class App implements Callable<Integer> {
 
-        // Creamos una ID aleatoria temporal para identificar visualmente a este nodo en
-        // la terminal
-        int randomId = (int) (Math.random() * 1000);
+    @Option(names = {"-i", "--ip"}, defaultValue = "localhost", description = "IP local de este nodo.")
+    private String ip;
 
-        // Creamos el Nodo Facade. Pasamos puerto 0 como placeholder, la lógica real lo
-        // asignará dinámicamente
-        Nodo miNodo = new Nodo(randomId, "localhost", 0, "Nodo-" + randomId, NodeRole.LEADER);
+    @Option(names = {"-n", "--name"}, defaultValue = "Nodo", description = "Nombre del nodo.")
+    private String name;
 
-        // Iniciar el Nodo (enciende su red interna, asigna puerto e inicia UDP
-        // Discovery)
-        miNodo.start();
+    @Option(names = {"-r", "--role"}, defaultValue = "WORKER", description = "Rol inicial (LEADER o WORKER).")
+    private NodeRole initialRole;
 
-        // Damos tiempo a iniciar bien (espera antes de habilitar la consola
-        // interactiva)
-        Thread.sleep(1500);
+    public static void main(String[] args) {
+        // Picocli procesa los argumentos de la terminal
+        int exitCode = new CommandLine(new App()).execute(args);
+        System.exit(exitCode);
+    }
 
-        // --- CLI Interactivo ---
-        ConsoleLogger.info("App",
-                "Sistema listo. Comandos disponibles: estado, info, conectar <ip> <puerto>, votar <mensaje>, salir");
-        java.util.Scanner scanner = new java.util.Scanner(System.in);
+    @Override
+    public Integer call() throws Exception {
+        // Generar un ID numérico aleatorio
+        int idAleatorio = (int) (System.currentTimeMillis() % 10000);
+        String finalName = name.equals("Nodo") ? "Nodo-" + idAleatorio : name;
 
-        while (true) {
-            String comando = scanner.nextLine();
+        ConsoleLogger.info("App", "Preparando nodo " + finalName + "...");
 
-            if (comando.equalsIgnoreCase("salir")) {
-                miNodo.stop();
-                break;
-            } else if (comando.equalsIgnoreCase("estado")) {
-                ConsoleLogger.info("App", "Estado actual: " + miNodo.getRole() + " en puerto " + miNodo.getPort());
-            } else if (comando.equalsIgnoreCase("info")) {
-                ConsoleLogger.info("App", "\n" + miNodo.getNetworkInfo());
-            } else if (comando.startsWith("conectar ")) {
-                String[] partes = comando.split(" ");
-                if (partes.length == 3) {
-                    miNodo.connectToPeer(partes[1], Integer.parseInt(partes[2]));
-                } else {
-                    ConsoleLogger.error("App", "Uso incorrecto. Formato: conectar <ip> <puerto>");
-                }
-            } else if (comando.startsWith("votar ")) {
-                miNodo.proponer("ACCION_MANUAL", comando.substring(6));
-            } else {
-                ConsoleLogger.advertencia("App",
-                        "Comando desconocido. Use: estado, info, conectar <ip> <puerto>, votar <mensaje>, salir");
-            }
+        // Instanciar el nodo (el puerto se descubrirá solo)
+        Nodo miNodo = new Nodo(idAleatorio, ip, finalName, initialRole);
+
+        try {
+            miNodo.start();
+        } catch (Exception e) {
+            ConsoleLogger.error("App", "Error crítico al arrancar: " + e.getMessage());
+            return 1;
         }
+
+        // Shutdown Hook para apagar todo limpiamente (Control+C)
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try { 
+                miNodo.stop(); 
+            } catch (InterruptedException ignored) {}
+        }));
+
+        miNodo.blockUntilShutdown();
+        return 0;
     }
 }
