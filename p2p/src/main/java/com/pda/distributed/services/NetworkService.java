@@ -116,6 +116,11 @@ public class NetworkService {
         throw new IOException("No se pudo encontrar ningún puerto libre entre 50000 y 50100 para iniciar gRPC.");
     }
 
+    // Devuelve el puerto dinámico asignado a este nodo
+    public int getMiPuerto() {
+        return this.miPuerto;
+    }
+    
     // Funcionalidad de ping
     public void sendPing(String host, int port) {
         // Ejecutar en su propio hilo para no bloquear el Discovery UDP si hay latencia
