@@ -29,11 +29,15 @@ public class App implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        if ("localhost".equals(ip) || "127.0.0.1".equals(ip)) {
+            ip = getLocalNetworkIp();
+        }
+
         // Generar un ID numérico aleatorio
         int idAleatorio = (int) (System.currentTimeMillis() % 10000);
         String finalName = name + "-" + idAleatorio;
 
-        ConsoleLogger.info("App", "Preparando nodo " + finalName + "...");
+        ConsoleLogger.info("App", "Preparando nodo " + finalName + " con IP: " + ip + "...");
 
         // Instanciar el nodo (el puerto se descubrirá solo)
         Nodo miNodo = new Nodo(idAleatorio, ip, finalName, initialRole);
@@ -95,5 +99,34 @@ public class App implements Callable<Integer> {
 
         miNodo.blockUntilShutdown();
         return 0;
+    }
+
+    private String getLocalNetworkIp() {
+        String fallbackIp = "127.0.0.1";
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface
+                    .getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface iface = interfaces.nextElement();
+                if (iface.isLoopback() || !iface.isUp() || iface.isVirtual()) {
+                    continue;
+                }
+                java.util.Enumeration<java.net.InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (addr instanceof java.net.Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (ip.startsWith("192.168.")) {
+                            return ip;
+                        } else if (fallbackIp.equals("127.0.0.1")) {
+                            fallbackIp = ip;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Ignorar y usar localhost como fallback
+        }
+        return fallbackIp;
     }
 }
