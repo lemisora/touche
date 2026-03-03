@@ -21,6 +21,10 @@ public class App implements Callable<Integer> {
     @Option(names = { "-r", "--role" }, defaultValue = "WORKER", description = "Rol inicial (LEADER o WORKER).")
     private NodeRole initialRole;
 
+    @Option(names = { "-s",
+            "--seed" }, description = "IP:PUERTO de un nodo semilla en Tailscale para conectarse directamente.")
+    private String seedNode;
+
     public static void main(String[] args) {
         // Picocli procesa los argumentos de la terminal
         int exitCode = new CommandLine(new App()).execute(args);
@@ -47,6 +51,22 @@ public class App implements Callable<Integer> {
         } catch (Exception e) {
             ConsoleLogger.error("App", "Error crítico al arrancar: " + e.getMessage());
             return 1;
+        }
+
+        if (seedNode != null && !seedNode.isEmpty()) {
+            try {
+                String[] partes = seedNode.split(":");
+                String ipSemilla = partes[0];
+                int puertoSemilla = Integer.parseInt(partes[1]);
+
+                ConsoleLogger.info("App", "Conectando al nodo semilla en Tailscale -> " + seedNode);
+                // Damos un segundo para que el servidor gRPC local termine de arrancar bien
+                Thread.sleep(1000);
+                miNodo.connectToPeer(ipSemilla, puertoSemilla);
+
+            } catch (Exception e) {
+                ConsoleLogger.error("App", "Formato de nodo semilla inválido. Use IP:PUERTO (ej. 100.10.20.30:50000)");
+            }
         }
 
         // Shutdown Hook para apagar todo limpiamente (Control+C)
