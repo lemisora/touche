@@ -9,17 +9,16 @@ import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
-@Command(name = "nodo-p2p", mixinStandardHelpOptions = true, version = "1.0",
-        description = "Inicia un nodo P2P con auto-descubrimiento UDP y almacenamiento distribuido.")
+@Command(name = "nodo-p2p", mixinStandardHelpOptions = true, version = "1.0", description = "Inicia un nodo P2P con auto-descubrimiento UDP y almacenamiento distribuido.")
 public class App implements Callable<Integer> {
 
-    @Option(names = {"-i", "--ip"}, defaultValue = "localhost", description = "IP local de este nodo.")
+    @Option(names = { "-i", "--ip" }, defaultValue = "localhost", description = "IP local de este nodo.")
     private String ip;
 
-    @Option(names = {"-n", "--name"}, defaultValue = "Nodo", description = "Nombre del nodo.")
+    @Option(names = { "-n", "--name" }, defaultValue = "Nodo", description = "Nombre del nodo.")
     private String name;
 
-    @Option(names = {"-r", "--role"}, defaultValue = "WORKER", description = "Rol inicial (LEADER o WORKER).")
+    @Option(names = { "-r", "--role" }, defaultValue = "WORKER", description = "Rol inicial (LEADER o WORKER).")
     private NodeRole initialRole;
 
     public static void main(String[] args) {
@@ -32,7 +31,7 @@ public class App implements Callable<Integer> {
     public Integer call() throws Exception {
         // Generar un ID numérico aleatorio
         int idAleatorio = (int) (System.currentTimeMillis() % 10000);
-        String finalName = name.equals("Nodo") ? "Nodo-" + idAleatorio : name;
+        String finalName = name + "-" + idAleatorio;
 
         ConsoleLogger.info("App", "Preparando nodo " + finalName + "...");
 
@@ -48,10 +47,51 @@ public class App implements Callable<Integer> {
 
         // Shutdown Hook para apagar todo limpiamente (Control+C)
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try { 
-                miNodo.stop(); 
-            } catch (InterruptedException ignored) {}
+            try {
+                miNodo.stop();
+            } catch (InterruptedException ignored) {
+            }
         }));
+
+        // Hilo para la consola interactiva (CLI)
+        Thread consolaInteractiva = new Thread(() -> {
+            java.util.Scanner scanner = new java.util.Scanner(System.in);
+            try {
+                // Pequeño retardo para no pisar el log de inicio
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+            }
+
+            System.out.println("=================================================");
+            System.out.println("  CONSOLA INTERACTIVA DEL NODO: " + finalName);
+            System.out.println("  Comandos disponibles:");
+            System.out.println("  - 'info' -> Ver estado del nodo y conexiones.");
+            System.out.println("  - 'archivos' -> Ver lista de archivos distribuidos.");
+            System.out.println("  - 'subir <ruta_archivo>' -> Distribuir un archivo local.");
+            System.out.println("  - 'salir' -> Apagar el nodo.");
+            System.out.println("=================================================");
+
+            while (true) {
+                System.out.print("> ");
+                String comando = scanner.nextLine().trim();
+
+                if ("salir".equalsIgnoreCase(comando)) {
+                    System.exit(0);
+                } else if ("info".equalsIgnoreCase(comando)) {
+                    System.out.println(miNodo.getNetworkInfo());
+                } else if ("archivos".equalsIgnoreCase(comando)) {
+                    System.out.println(miNodo.getArchivosDistribuidos());
+                } else if (comando.toLowerCase().startsWith("subir ")) {
+                    String rutaArchivo = comando.substring(6).trim();
+                    ConsoleLogger.info("App", "Disparando subida manual para archivo: " + rutaArchivo);
+                    miNodo.forzarSubidaManual(rutaArchivo);
+                } else if (!comando.isEmpty()) {
+                    System.out.println("Comando no reconocido. Escribe 'info', 'archivos', 'subir <ruta>' o 'salir'.");
+                }
+            }
+        });
+        consolaInteractiva.setDaemon(true);
+        consolaInteractiva.start();
 
         miNodo.blockUntilShutdown();
         return 0;

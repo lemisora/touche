@@ -11,6 +11,7 @@ public class ConsoleLogger {
     public static final String GREEN = "\u001B[32m";
     public static final String YELLOW = "\u001B[33m";
     public static final String CYAN = "\u001B[36m";
+    public static final String BLUE = "\u001B[34m";
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -24,6 +25,12 @@ public class ConsoleLogger {
 
     private static void log(String color, String modulo, String mensaje) {
         String timestamp = LocalDateTime.now().format(FORMATTER);
+
+        // Si somos líderes, sobrescribimos el color normal para que destaque en azul
+        if ("LIDER".equals(rolConfigurado) && color.equals(CYAN)) {
+            color = BLUE;
+        }
+
         System.out.println(color + "[" + timestamp + "] [" + rolConfigurado + "] [" + modulo + "] " + mensaje + RESET);
     }
 

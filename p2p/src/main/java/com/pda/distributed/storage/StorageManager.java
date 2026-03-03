@@ -1,6 +1,6 @@
 package com.pda.distributed.storage;
 
-import java.io.File;
+//import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -37,17 +37,19 @@ public class StorageManager {
 
     /**
      * Guarda un arreglo de bytes en el disco físico.
+     * 
      * @param idFragmento Nombre único del fragmento (ej. "video.mp4.part1")
-     * @param datos Los bytes puros a guardar
+     * @param datos       Los bytes puros a guardar
      * @return true si se guardó con éxito, false si hubo un error
      */
     public boolean guardarFragmento(String idFragmento, byte[] datos) {
         Path rutaArchivo = directorioAlmacenamiento.resolve(idFragmento);
-        
+
         // Usamos try-with-resources para asegurar que el archivo se cierre siempre
         try (FileOutputStream fos = new FileOutputStream(rutaArchivo.toFile())) {
             fos.write(datos);
-            System.out.println("[Storage] Fragmento guardado en disco: " + idFragmento + " (" + datos.length + " bytes)");
+            System.out
+                    .println("[Storage] Fragmento guardado en disco: " + idFragmento + " (" + datos.length + " bytes)");
             return true;
         } catch (IOException e) {
             System.err.println("[Storage] Error al guardar el fragmento " + idFragmento + ": " + e.getMessage());
@@ -60,12 +62,12 @@ public class StorageManager {
      */
     public byte[] leerFragmento(String idFragmento) {
         Path rutaArchivo = directorioAlmacenamiento.resolve(idFragmento);
-        
+
         if (!Files.exists(rutaArchivo)) {
             System.err.println("[Storage] El fragmento solicitado no existe: " + idFragmento);
             return null;
         }
-        
+
         try {
             return Files.readAllBytes(rutaArchivo);
         } catch (IOException e) {
@@ -75,7 +77,9 @@ public class StorageManager {
     }
 
     /**
-     * Consulta el espacio libre del disco duro (Útil para el Algoritmo de Distribución).
+     * Consulta el espacio libre del disco duro (Útil para el Algoritmo de
+     * Distribución).
+     * 
      * @return Espacio libre en bytes.
      */
     public long obtenerEspacioDisponible() {

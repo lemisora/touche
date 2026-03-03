@@ -19,10 +19,10 @@ public class StorageCoordinator {
     private DistributedDirectory distributedDirectory;
 
     public StorageCoordinator() {
-        // El constructor se mantiene limpio. 
+        // El constructor se mantiene limpio.
         // Las dependencias se inyectan desde la clase principal (App o Nodo).
     }
-    
+
     // Métodos de Inyección de Dependencias (Setters)
     public void setNetworkService(NetworkService networkService) {
         this.networkService = networkService;
@@ -41,11 +41,12 @@ public class StorageCoordinator {
     }
 
     /**
-     * Invocado por FileWatcherService cuando el usuario coloca un archivo en ./archivos_entrada
+     * Invocado por FileWatcherService cuando el usuario coloca un archivo en
+     * ./archivos_entrada
      */
     public void manejarNuevoArchivoLocal(String rutaArchivo) {
         System.out.println("[Coordinator] Evaluando nuevo archivo local: " + rutaArchivo);
-        
+
         File archivo = new File(rutaArchivo);
         if (!archivo.exists()) {
             System.err.println("[Coordinator] Error: El archivo desapareció antes de procesarse.");
@@ -55,40 +56,78 @@ public class StorageCoordinator {
         ConsoleLogger.info("Log", "StorageCoordinator: Preparando para solicitar ubicación en el anillo...");
 
         String nombreArchivo = archivo.getName();
-        long tamanoBytes = archivo.length(); // Tu prueba era de 0-bytes, pero aquí ya soportamos reales
+        long tamanoBytes = archivo.length();
 
         System.out.println("[Coordinator] Archivo: " + nombreArchivo + " | Tamaño: " + tamanoBytes + " bytes");
 
-        // FLUJO SIMULADO -- Falta implementar el envio de fragmentos por la red --
-        
-        // Pedir permiso/ubicación al líder o al quorum
-        if (quorumService != null) {
-            System.out.println("[Coordinator] Solicitando nodos al QuorumService para distribuir...");
-            // List<String> nodosDestino = quorumService.proposeAction(...);
-        } else {
-            System.out.println("[Coordinator] (Simulación) QuorumService no disponible. Asumiendo que hay espacio.");
+        // 1. Pedir candidatos al Directorio
+        java.util.List<String> nodosCandidatos = null;
+        if (distributedDirectory != null) {
+            nodosCandidatos = distributedDirectory.assignWorkersToNewFile(nombreArchivo, tamanoBytes);
         }
 
-        // Fragmentar y Enviar por la red
-        if (networkService != null) {
-            System.out.println("[Coordinator] Enviando fragmentos vía NetworkService (gRPC)...");
-            // byte[] chunk = leerArchivo(archivo);
-            // networkService.sendChunk(nodoDestino, chunk);
-        } else {
-            System.out.println("[Coordinator] (Simulación) NetworkService no disponible. Simulación de envío completada.");
+        if (nodosCandidatos == null || nodosCandidatos.isEmpty()) {
+            ConsoleLogger.error("Coordinator", "No hay nodos Worker disponibles con suficiente espacio.");
+            return;
         }
+
+        String idAccion = "UPLOAD:" + nombreArchivo;
+        String detalleAccion = "Guardar " + nombreArchivo + " en " + nodosCandidatos;
+
+        // 2. Proponer al Quorum (Comité)
+        if (quorumService != null) {
+            System.out.println("[Coordinator] Solicitando consenso al Comité para distribuir...");
+
+            // Aquí configuramos qué pasará SI GANAMOS la elección de subir el archivo
+            final java.util.List<String> nodosFinales = nodosCandidatos;
+            quorumService.proponerAccion(idAccion, detalleAccion, () -> {
+                ConsoleLogger.exito("Coordinator", "El Comité aprobó la subida de " + nombreArchivo);
+                ejecutarSubidaReal(archivo, nodosFinales);
+            });
+        } else {
+            ConsoleLogger.advertencia("Coordinator", "QuorumService no disponible. Procediendo sin consenso.");
+            ejecutarSubidaReal(archivo, nodosCandidatos);
+        }
+    }
+
+    private void ejecutarSubidaReal(File archivo, java.util.List<String> nodosDestino) {
+        String nombreArchivo = archivo.getName();
 
         // Registrar en el directorio lógico
         if (distributedDirectory != null) {
             System.out.println("[Coordinator] Registrando metadatos en DistributedDirectory...");
-            // distributedDirectory.registrarUbicacion(nombreArchivo, nodosDestino);
+            for (String nodo : nodosDestino) {
+                distributedDirectory.registrarUbicacion(nombreArchivo, nodo);
+            }
         }
-        
-        System.out.println("[Coordinator] ✅ Procesamiento de subida concluido para: " + nombreArchivo + "\n");
+
+        // Fragmentar y Enviar por la red a los Workers elegidos
+        if (networkService != null) {
+            try {
+                byte[] datos = java.nio.file.Files.readAllBytes(archivo.toPath());
+                for (String nodoId : nodosDestino) {
+                    // idNodo es típicamente "ip:puerto", para este MVP simplificamos extrayendo el
+                    // puerto
+                    String[] partes = nodoId.split(":");
+                    int puerto = partes.length > 1 ? Integer.parseInt(partes[1]) : Integer.parseInt(nodoId);
+
+                    ConsoleLogger.info("Coordinator", "Enviando fragmentos vía gRPC al Worker en puerto " + puerto);
+                    networkService.enviarFragmentoBasico(puerto, nombreArchivo, datos);
+                }
+            } catch (Exception e) {
+                ConsoleLogger.error("Coordinator", "Error leyendo/enviando el archivo: " + e.getMessage());
+            }
+        } else {
+            System.out.println(
+                    "[Coordinator] (Simulación) NetworkService no disponible. Simulación de envío completada.");
+        }
+
+        ConsoleLogger.exito("Coordinator", "Procesamiento de subida concluido para: " + nombreArchivo);
     }
 
     /**
-     * Invocado por PdaServiceGrpcImpl cuando OTRO nodo nos envía un fragmento para guardar
+     * Invocado por PdaServiceGrpcImpl cuando OTRO nodo nos envía un fragmento para
+     * guardar
      */
     public void procesarFragmentoEntrante(String idArchivo, byte[] datosFragmento) {
         ConsoleLogger.info("StorageCoordinator", "Fragmento recibido de red para el archivo: " + idArchivo + " ("
@@ -96,10 +135,15 @@ public class StorageCoordinator {
 
         if (storageManager != null) {
             System.out.println("[Coordinator] Delegando escritura al disco mediante StorageManager...");
-            // boolean exito = storageManager.storeChunk(idArchivo, datosFragmento);
-            // return exito;
+            boolean exito = storageManager.guardarFragmento(idArchivo, datosFragmento);
+            if (exito) {
+                ConsoleLogger.exito("StorageCoordinator", "Archivo guardado físicamente: " + idArchivo);
+            } else {
+                ConsoleLogger.error("StorageCoordinator", "Hubo un error guardando el archivo en disco.");
+            }
         } else {
-            System.out.println("[Coordinator] (Simulación) StorageManager no disponible. Fingiendo que se guardó en el disco local.");
+            System.out.println(
+                    "[Coordinator] (Simulación) StorageManager no disponible. Fingiendo que se guardó en el disco local.");
         }
     }
 }

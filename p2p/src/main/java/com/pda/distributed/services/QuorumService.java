@@ -16,13 +16,18 @@ public class QuorumService {
     // al mismo tiempo
     private final Map<String, Integer> votosActivos = new ConcurrentHashMap<>();
 
-    // Cuántos votos necesitamos para que una decisión se apruebe
-    private int votosRequeridos;
+    // Callbacks dinámicos por ID de acción
+    private final Map<String, Runnable> callbacksActivos = new ConcurrentHashMap<>();
+
+    // Callback que se ejecutará al ganar una elección
+    private Runnable onElectionWon;
 
     public QuorumService() {
-        // Inicialización temporal (esto debería configurarse después dependiendo de
-        // cuántos nodos existan)
-        this.votosRequeridos = 2; // Ejemplo: 2 votos para tener mayoría
+        // Inicialización
+    }
+
+    public void setOnElectionWon(Runnable onElectionWon) {
+        this.onElectionWon = onElectionWon;
     }
 
     // Inyección de dependencias: Le pasamos el NetworkService creado en el Nodo
@@ -30,13 +35,22 @@ public class QuorumService {
         this.networkService = networkService;
     }
 
-    // Método para proponer una votación a la red
-    public void proponerAccion(String idAccion, String accion) {
+    // Método para proponer una votación a la red con un callback específico
+    public void proponerAccion(String idAccion, String accion, Runnable callback) {
         ConsoleLogger.info("Log", "Quorum: Proponiendo acción '" + idAccion + "': " + accion);
+
+        if (callback != null) {
+            callbacksActivos.put(idAccion, callback);
+        }
 
         // Empezamos votando por nosotros mismos (el nodo que propone aprueba su propia
         // idea)
-        votosActivos.put(idAccion, 1);
+        votosActivos.put(idAccion, votosActivos.getOrDefault(idAccion, 0) + 1);
+
+        // Verificamos inmediatamente por si ya tenemos el quórum (ej. un solo nodo)
+        if (verificarQuorum(idAccion)) {
+            return;
+        }
 
         // Usamos NetworkService para mandar esta propuesta a todos los otros Líderes
         if (networkService != null) {
@@ -45,6 +59,11 @@ public class QuorumService {
         } else {
             ConsoleLogger.error("Error", "Quorum: NetworkService no inicializado!");
         }
+    }
+
+    // Método para proponer una votación a la red sin callback dinámico
+    public void proponerAccion(String idAccion, String accion) {
+        proponerAccion(idAccion, accion, null);
     }
 
     // Método que se llama cuando recibimos el voto de un compañero
@@ -68,9 +87,29 @@ public class QuorumService {
     private boolean verificarQuorum(String idAccion) {
         int votos = votosActivos.getOrDefault(idAccion, 0);
 
+        // Calculamos el quorum dinámicamente basado en los nodos conectados
+        int totalNodos = 1; // Me incluyo a mí mismo
+        if (networkService != null) {
+            totalNodos += networkService.getConnectedNodesCount();
+        }
+        int votosRequeridos = (totalNodos / 2) + 1;
+
         if (votos >= votosRequeridos) {
-            ConsoleLogger.info("Log", ">>> QUORUM ALCANZADO para la acción: " + idAccion + " <<<");
-            // Aquí se ejecutaría la acción aprobada...
+            ConsoleLogger.info("Log", ">>> QUORUM ALCANZADO para la acción: " + idAccion + " con " + votos + "/"
+                    + votosRequeridos + " votos <<<");
+
+            // Evitamos ejecutarlo múltiples veces limpiando el progreso
+            votosActivos.remove(idAccion);
+
+            // Verificamos si hay un callback específico para esta acción
+            if (callbacksActivos.containsKey(idAccion)) {
+                Runnable callback = callbacksActivos.remove(idAccion);
+                callback.run();
+            }
+            // Si no, volvemos a la lógica por defecto de ELECTION
+            else if ("ELECTION".equals(idAccion) && onElectionWon != null) {
+                onElectionWon.run();
+            }
             return true;
         }
         return false;

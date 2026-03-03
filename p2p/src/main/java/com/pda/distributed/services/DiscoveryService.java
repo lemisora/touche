@@ -5,8 +5,10 @@ import com.pda.distributed.utils.ConsoleLogger;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.net.SocketException;
-import java.net.UnknownHostException;
+import java.net.InetSocketAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -66,7 +68,8 @@ public class DiscoveryService {
                 // Configuramos para poder reusar el puerto si hay varios nodos en el mismo
                 // local
                 socket.setReuseAddress(true);
-                socket.bind(new java.net.InetSocketAddress(UDP_PORT));
+                // Escuchar explícitamente en todas las interfaces (0.0.0.0)
+                socket.bind(new InetSocketAddress("0.0.0.0", UDP_PORT));
 
                 byte[] buffer = new byte[1024];
 
@@ -99,13 +102,40 @@ public class DiscoveryService {
                     String mensaje = MAGIC_WORD + miPuertoGrpc + ":" + currRingId;
                     byte[] buffer = mensaje.getBytes();
 
-                    DatagramPacket packet = new DatagramPacket(
-                            buffer,
-                            buffer.length,
-                            InetAddress.getByName(BROADCAST_ADDRESS),
-                            UDP_PORT);
+                    // Intentar enviar a 255.255.255.255 primero (por defecto)
+                    try {
+                        socket.send(new DatagramPacket(buffer, buffer.length,
+                                InetAddress.getByName(BROADCAST_ADDRESS), UDP_PORT));
+                    } catch (Exception e) {
+                    }
 
-                    socket.send(packet);
+                    // Enviar explícitamente a todas las interfaces locales (para asegurar localhost
+                    // y LAN)
+                    Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+                    while (interfaces.hasMoreElements()) {
+                        NetworkInterface networkInterface = interfaces.nextElement();
+                        if (!networkInterface.isUp())
+                            continue;
+
+                        for (InterfaceAddress interfaceAddress : networkInterface.getInterfaceAddresses()) {
+                            InetAddress broadcast = interfaceAddress.getBroadcast();
+                            if (broadcast == null)
+                                continue;
+
+                            try {
+                                DatagramPacket packet = new DatagramPacket(buffer, buffer.length, broadcast, UDP_PORT);
+                                socket.send(packet);
+                            } catch (Exception e) {
+                            }
+                        }
+                    }
+
+                    // Asegurar loopback local
+                    try {
+                        socket.send(new DatagramPacket(buffer, buffer.length,
+                                InetAddress.getByName("127.255.255.255"), UDP_PORT));
+                    } catch (Exception e) {
+                    }
 
                     // Gritamos cada 3 segundos
                     Thread.sleep(3000);
@@ -130,10 +160,11 @@ public class DiscoveryService {
                 anilloAjeno = partes[1].trim();
             }
 
-            // Validar que pertenezcan al mismo anillo
-            if (!this.currRingId.equals(anilloAjeno)) {
-                return; // Ignorar nodos de otro anillo
-            }
+            // Quitamos la restricción de anillo para que el Comité (A)
+            // pueda conectarse y enviarle archivos a los Workers (B)
+            // if (!this.currRingId.equals(anilloAjeno)) {
+            // return; // Ignorar nodos de otro anillo
+            // }
 
             // Verificamos que no seamos nosotros mismos y que no estemos conectados ya
             if (!puertosIgnorados.contains(puertoGrpcAjeno) && networkService != null) {

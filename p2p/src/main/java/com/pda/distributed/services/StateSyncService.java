@@ -73,9 +73,10 @@ public class StateSyncService {
         long tiempoActual = System.currentTimeMillis();
         ultimaConexion.put(puertoOrigen, tiempoActual);
 
-        ConsoleLogger.info("StateSync",
-                "Estado recibido de puerto " + puertoOrigen + ". Actualizando marca de tiempo a "
-                        + tiempoActual);
+        // ConsoleLogger.info("StateSync",
+        // "Estado recibido de puerto " + puertoOrigen + ". Actualizando marca de tiempo
+        // a "
+        // + tiempoActual);
     }
 
     // Revisa cuáles nodos llevan mucho tiempo sin reportarse (detectDeadLeaders en
@@ -102,5 +103,22 @@ public class StateSyncService {
                 ultimaConexion.remove(puerto);
             }
         }
+    }
+
+    // Retorna true si hemos escuchado latidos de al menos un líder recientemente
+    public boolean hayLiderActivo() {
+        if (ultimaConexion.isEmpty()) {
+            return false;
+        }
+
+        long tiempoActual = System.currentTimeMillis();
+        long tiempoMaximoInactivo = 15000;
+
+        for (Long ultimaVez : ultimaConexion.values()) {
+            if (tiempoActual - ultimaVez <= tiempoMaximoInactivo) {
+                return true;
+            }
+        }
+        return false;
     }
 }

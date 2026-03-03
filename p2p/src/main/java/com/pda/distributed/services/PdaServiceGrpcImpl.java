@@ -16,16 +16,19 @@ import io.grpc.stub.StreamObserver;
 // Implementación de los servicios gRPC
 public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
 
-    private final QuorumService quorumService;
     private final StateSyncService stateSyncService;
     private final StorageCoordinator storageCoordinator;
+    private final int miPuerto;
 
-    // Constructor que recibe los tres servicios
-    public PdaServiceGrpcImpl(QuorumService quorumService, StateSyncService stateSyncService,
-            StorageCoordinator storageCoordinator) {
-        this.quorumService = quorumService;
+    // Cooldown para evitar que un nodo vote "Sí" a múltiples candidatos en la misma
+    // ventana de tiempo
+    private long ultimoVotoElectionEmitido = 0;
+
+    // Constructor que recibe los tres servicios y el puerto local
+    public PdaServiceGrpcImpl(StateSyncService stateSyncService, StorageCoordinator storageCoordinator, int miPuerto) {
         this.stateSyncService = stateSyncService;
         this.storageCoordinator = storageCoordinator;
+        this.miPuerto = miPuerto;
     }
 
     @Override
@@ -39,11 +42,10 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
     @Override
     public void sincronizarEstado(PeticionEstado request, StreamObserver<RespuestaEstado> responseObserver) {
         String estadoRecibido = request.getDatosEstado();
+        int puertoOrigen = request.getPuertoOrigen();
 
         if (stateSyncService != null) {
-            // Pasamos puerto 0 como default ya que extraer IPs de grpc en java excede este
-            // alcance
-            stateSyncService.recibirEstado(estadoRecibido, 0);
+            stateSyncService.recibirEstado(estadoRecibido, puertoOrigen);
         } else {
             ConsoleLogger.error("Error", "GRPC: StateSyncService no inicializado!");
         }
@@ -55,15 +57,28 @@ public class PdaServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
     @Override
     public void votar(PeticionVoto request, StreamObserver<RespuestaVoto> responseObserver) {
         String idAccion = request.getIdAccion();
-        ConsoleLogger.info("Log", "GRPC: Recibido voto para acción: " + idAccion);
+        int puertoOrigen = request.getPuertoOrigen();
+        ConsoleLogger.info("Log",
+                "GRPC: Recibido voto para acción: " + idAccion + " (desde puerto " + puertoOrigen + ")");
 
-        // Simular que el voto siempre es a favor (para la práctica)
         boolean votoAFavor = true;
 
-        if (quorumService != null) {
-            quorumService.recibirVoto(idAccion, votoAFavor);
-        } else {
-            ConsoleLogger.error("Error", "GRPC: QuorumService no inicializado!");
+        if ("ELECTION".equals(idAccion)) {
+            synchronized (this) {
+                if (this.stateSyncService != null && this.stateSyncService.hayLiderActivo()) {
+                    // Ya tenemos líder
+                    votoAFavor = false;
+                    ConsoleLogger.info("Log", "GRPC: Voto para ELECTION denegado: ya existe un Lider.");
+                } else if (System.currentTimeMillis() - ultimoVotoElectionEmitido < 10000) {
+                    // Prevenir "Split Brain" si recibimos 2 peticiones al mismo tiempo
+                    votoAFavor = false;
+                    ConsoleLogger.info("Log", "GRPC: Voto denegado: ya voté recientemente (cooldown).");
+                } else {
+                    ConsoleLogger.info("Log", "GRPC: Concediendo voto para ELECTION a puerto " + puertoOrigen);
+                    votoAFavor = true;
+                    ultimoVotoElectionEmitido = System.currentTimeMillis();
+                }
+            }
         }
 
         responseObserver.onNext(RespuestaVoto.newBuilder().setAcepta(votoAFavor).build());

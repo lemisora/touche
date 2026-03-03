@@ -40,6 +40,7 @@ public class Nodo {
     private Thread ringWatchdog;
     private boolean watchdogActivo = false;
     private String currentRingId = "A";
+    private int ultimoConteoNodos = 0;
 
     public Nodo(int id, String ip, String name, NodeRole initialRole) {
         this.id = id;
@@ -52,7 +53,7 @@ public class Nodo {
         this.quorumService = new QuorumService();
         this.stateSyncService = new StateSyncService();
         this.discoveryService = new DiscoveryService();
-        
+
         this.storageCoordinator = new StorageCoordinator();
         this.fileWatcherService = new FileWatcherService();
         this.storageManager = new StorageManager();
@@ -60,6 +61,7 @@ public class Nodo {
 
         // Inyectar dependencias de Red
         this.quorumService.setNetworkService(this.networkService);
+        this.quorumService.setOnElectionWon(this::promoteToLeader);
         this.networkService.setQuorumService(this.quorumService);
         this.stateSyncService.setNetworkService(this.networkService);
         this.networkService.setStateSyncService(this.stateSyncService);
@@ -75,7 +77,7 @@ public class Nodo {
 
     public void start() throws IOException {
         ConsoleLogger.info("Log", "--- Iniciando Nodo " + name + " ---");
-        
+
         // Arrancar el servidor de red recibiendo el puerto aleatorio libre elegido
         this.port = networkService.startServer(storageCoordinator);
         ConsoleLogger.info("Log", "Puerto asignado: " + this.port + ". Iniciando Discovery UDP...");
@@ -98,7 +100,7 @@ public class Nodo {
 
         // Iniciar el vigilante de los anillos
         iniciarWatchdog();
-        
+
         ConsoleLogger.info("Log", "ID: " + id + " | IP: " + ip + " | Puerto: " + port + " | Rol: " + currentRole);
     }
 
@@ -107,20 +109,24 @@ public class Nodo {
     }
 
     public void proponer(String idAccion, String accion) {
-        if (currentRole == NodeRole.LEADER) {
+        if (currentRole == NodeRole.LEADER || "ELECTION".equals(idAccion)) {
             quorumService.proponerAccion(idAccion, accion);
         } else {
-            ConsoleLogger.info("Log", "Nodo: Soy WORKER, no puedo proponer acciones al Quorum.");
+            ConsoleLogger.info("Log", "Nodo: Soy WORKER, no puedo proponer esta acción al Quorum.");
         }
     }
 
     public void stop() throws InterruptedException {
         ConsoleLogger.info("Log", "Deteniendo nodo " + name);
         watchdogActivo = false;
-        if (ringWatchdog != null) ringWatchdog.interrupt();
-        if (stateSyncService != null) stateSyncService.detenerGossip();
-        if (discoveryService != null) discoveryService.detener();
-        if (fileWatcherService != null) fileWatcherService.detener();
+        if (ringWatchdog != null)
+            ringWatchdog.interrupt();
+        if (stateSyncService != null)
+            stateSyncService.detenerGossip();
+        if (discoveryService != null)
+            discoveryService.detener();
+        if (fileWatcherService != null)
+            fileWatcherService.detener();
         networkService.stop();
     }
 
@@ -129,36 +135,73 @@ public class Nodo {
     }
 
     public void promoteToLeader() {
-        this.currentRole = NodeRole.LEADER;
-        ConsoleLogger.info("Log", "Nodo ha sido promovido a LIDER");
+        if (this.currentRole != NodeRole.LEADER) {
+            this.currentRole = NodeRole.LEADER;
+            ConsoleLogger.setRolConfigurado("LIDER");
+            ConsoleLogger.info("Log", "Nodo ha sido promovido a LIDER");
+            // Un nuevo Lider debe iniciar su gossip
+            stateSyncService.iniciarGossip(this.port);
+        }
     }
 
     public void demoteToWorker() {
         this.currentRole = NodeRole.WORKER;
+        ConsoleLogger.setRolConfigurado("WORKER");
         ConsoleLogger.info("Log", "Nodo ha sido degradado a TRABAJADOR");
     }
 
-    public NodeRole getRole() { return currentRole; }
-    public int getPort() { return port; }
-    public String getIp() { return ip; }
+    public NodeRole getRole() {
+        return currentRole;
+    }
 
-    // Lógica de anillos
+    public int getPort() {
+        return port;
+    }
+
+    public String getIp() {
+        return ip;
+    }
+
+    // Lógica de anillos y auto-elección
     private void iniciarWatchdog() {
         watchdogActivo = true;
         ringWatchdog = new Thread(() -> {
+            // Dar un tiempo inicial de gracia aleatorio (10 a 15 segs) antes de evaluar
+            // líderes
+            // Esto evita que si se inician 8 nodos a la vez, los 8 hagan la elección en el
+            // mismo milisegundo
+            try {
+                int randomJitter = (int) (Math.random() * 5000);
+                Thread.sleep(10000 + randomJitter);
+            } catch (InterruptedException ignored) {
+            }
+
             while (watchdogActivo) {
                 try {
                     Thread.sleep(5000); // Revisar cada 5 segundos
 
-                    if (!currentRingId.equals("A") || currentRole == NodeRole.WORKER) {
+                    // --- Comité Dinámico ---
+                    if ("A".equals(currentRingId) && currentRole == NodeRole.WORKER) {
+                        // En el Anillo A todos deben ser líderes (Comité)
+                        promoteToLeader();
+                    }
+
+                    if (!currentRingId.equals("A")) {
+                        // El anillo B no toma decisiones pesadas ni se auto-elige libremente
                         continue;
                     }
 
                     int totalNodos = networkService.getConnectedNodesCount() + 1;
 
-                    if (totalNodos >= 6) {
-                        ConsoleLogger.advertencia("Log", "¡Nivel crítico de nodos (6)! Iniciando Sharding de Anillos...");
+                    if (totalNodos >= 6 && totalNodos != ultimoConteoNodos) {
+                        ConsoleLogger.advertencia("Log",
+                                "Cantidad de nodos: " + totalNodos
+                                        + ". Re-evaluando distribución de Comité y Trabajadores...");
                         dividirAnillos();
+                        ultimoConteoNodos = totalNodos;
+                    } else if (totalNodos < 6 && totalNodos != ultimoConteoNodos) {
+                        ultimoConteoNodos = totalNodos;
+                        // Si bajan de 6 podríamos revertir, pero lo mantendremos simple por ahora
                     }
 
                 } catch (InterruptedException e) {
@@ -180,25 +223,16 @@ public class Nodo {
         if (miIndice >= 3) {
             this.currentRingId = "B";
             this.discoveryService.setRingId("B");
-            ConsoleLogger.info("Log", "Fui reasignado al nuevo Anillo B.");
+            ConsoleLogger.info("Log", "Fui reasignado al nuevo Anillo B (Trabajadores).");
+            demoteToWorker();
         } else {
-            ConsoleLogger.info("Log", "Me mantengo en el Anillo A.");
+            ConsoleLogger.info("Log", "Me mantengo en el Anillo A (Comité).");
+            promoteToLeader();
         }
 
-        // Cortamos las conexiones con los nodos del anillo opuesto
-        for (Integer p : todosLosPuertos) {
-            if (p == this.port) continue;
-
-            int suIndice = todosLosPuertos.indexOf(p);
-            boolean esDelAnilloB = (suIndice >= 3);
-            boolean soyDelAnilloB = (miIndice >= 3);
-
-            if (esDelAnilloB != soyDelAnilloB) {
-                // Somos de anillos diferentes, cerramos el canal gRPC
-                ConsoleLogger.info("Log", "Cortando conexión con nodo del anillo opuesto (Puerto " + p + ")");
-                networkService.desconectarNodo(p);
-            }
-        }
+        // Ya no cortamos conexiones entre Anillo A y Anillo B, porque el
+        // Comité necesita ver a los Trabajadores para enviarles archivos.
+        ConsoleLogger.info("Log", "Reestructuración de anillos completada. Total Nodos: " + todosLosPuertos.size());
     }
 
     public String getNetworkInfo() {
@@ -206,5 +240,28 @@ public class Nodo {
                 "ID: %d\nIP: %s\nPuerto: %d\nRol: %s\nAnillo: %s\nConexiones Activas: %d\nPuertos Conectados: %s\n---------------------",
                 id, ip, port, currentRole, currentRingId, networkService.getConnectedNodesCount(),
                 networkService.getConnectedPorts().toString());
+    }
+
+    public void forzarSubidaManual(String rutaArchivo) {
+        if (this.storageCoordinator != null) {
+            this.storageCoordinator.manejarNuevoArchivoLocal(rutaArchivo);
+        }
+    }
+
+    public String getArchivosDistribuidos() {
+        if (distributedDirectory == null)
+            return "Directorio no inicializado.";
+        java.util.Map<String, List<String>> catalogo = distributedDirectory.obtenerEstadoCompleto();
+
+        if (catalogo.isEmpty()) {
+            return "No hay archivos distribuidos en la red actualmente.";
+        }
+
+        StringBuilder sb = new StringBuilder("--- ARCHIVOS DISTRIBUIDOS ---\n");
+        for (java.util.Map.Entry<String, List<String>> entry : catalogo.entrySet()) {
+            sb.append("- ").append(entry.getKey()).append(" -> Guardado en: ").append(entry.getValue()).append("\n");
+        }
+        sb.append("-----------------------------");
+        return sb.toString();
     }
 }

@@ -26,6 +26,7 @@ public class NetworkService {
     private final java.util.Set<Integer> nodosMuertos = ConcurrentHashMap.newKeySet();
     private Thread hiloReconexion;
     private boolean activoReconexion = false;
+    private int miPuerto;
 
     public NetworkService() {
         iniciarHiloReconexion();
@@ -94,9 +95,10 @@ public class NetworkService {
 
         while (puertoIntento <= maxPuerto) {
             try {
+                this.miPuerto = puertoIntento;
                 this.grpcServer = ServerBuilder.forPort(puertoIntento)
                         .addService(
-                                new PdaServiceGrpcImpl(this.quorumService, this.stateSyncService, storageCoordinator))
+                                new PdaServiceGrpcImpl(this.stateSyncService, storageCoordinator, this.miPuerto))
                         .build()
                         .start();
 
@@ -116,31 +118,38 @@ public class NetworkService {
 
     // Funcionalidad de ping
     public void sendPing(String host, int port) {
-        hostMap.put(port, host); // Guardar host para futura reconexion si muere
-        ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port)
-                .usePlaintext()
-                .build();
+        // Ejecutar en su propio hilo para no bloquear el Discovery UDP si hay latencia
+        new Thread(() -> {
+            hostMap.put(port, host); // Guardar host para futura reconexion si muere
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port)
+                    .usePlaintext()
+                    .build();
 
-        PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(channel);
-        PingRequest request = PingRequest.newBuilder().setMensajeSaludo("Hola desde P2P Nodo Facade").build();
+            PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(channel);
+            PingRequest request = PingRequest.newBuilder().setMensajeSaludo("Hola desde P2P Nodo Facade").build();
 
-        boolean conectado = false;
-        while (!conectado) {
-            try {
-                PingResponse response = stub.ping(request);
-                ConsoleLogger.info("Log", "Respuesta del otro nodo (" + port + "): " + response.getRespuesta());
-                conectado = true;
-            } catch (io.grpc.StatusRuntimeException e) {
-                ConsoleLogger.info("Log", "El nodo destino " + port + " no está listo. Reintentando en 3 segundos...");
+            boolean conectado = false;
+            while (!conectado && activoReconexion) {
                 try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            } // end catch
-        } // end while
-        channels.put(port, channel);
+                    PingResponse response = stub.ping(request);
+                    ConsoleLogger.info("Log", "Respuesta del otro nodo (" + port + "): " + response.getRespuesta());
+                    conectado = true;
+                } catch (io.grpc.StatusRuntimeException e) {
+                    ConsoleLogger.info("Log",
+                            "El nodo destino " + port + " no está listo. Reintentando en 3 segundos...");
+                    try {
+                        Thread.sleep(3000);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                } // end catch
+            } // end while
+
+            if (conectado) {
+                channels.put(port, channel);
+            }
+        }).start();
     } // end sendPing
 
     // Permite saber si ya tenemos una conexión abierta con un nodo (útil para el
@@ -167,6 +176,7 @@ public class NetworkService {
         com.pda.distributed.network.grpc.PeticionVoto peticion = com.pda.distributed.network.grpc.PeticionVoto
                 .newBuilder()
                 .setIdAccion(idAccion)
+                .setPuertoOrigen(this.miPuerto)
                 .build();
 
         for (Map.Entry<Integer, ManagedChannel> entry : channels.entrySet()) {
@@ -184,7 +194,9 @@ public class NetworkService {
 
                 // Si tuviéramos acceso a QuorumService aquí, le pasaríamos la respuesta
                 // inmediatamente
-                // Pero lo conectaremos en el Orquestador (Facade) o pasando una referencia
+                if (this.quorumService != null) {
+                    this.quorumService.recibirVoto(idAccion, respuesta.getAcepta());
+                }
 
             } catch (Exception e) {
                 ConsoleLogger.info("Log", "NetworkService: Error solicitando voto al puerto " + puertoDestino);
@@ -200,6 +212,7 @@ public class NetworkService {
         com.pda.distributed.network.grpc.PeticionEstado peticion = com.pda.distributed.network.grpc.PeticionEstado
                 .newBuilder()
                 .setDatosEstado(miEstado)
+                .setPuertoOrigen(this.miPuerto)
                 .build();
 
         for (Map.Entry<Integer, ManagedChannel> entry : channels.entrySet()) {
@@ -209,15 +222,38 @@ public class NetworkService {
             try {
                 // Para gossip, enviamos sin bloquear mucho tiempo
                 PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(canal);
-                com.pda.distributed.network.grpc.RespuestaEstado respuesta = stub.sincronizarEstado(peticion);
-
-                // System.out.println("NetworkService: Estado sincronizado con puerto " +
-                // puertoDestino + ". Confirmación: " + respuesta.getConfirmacion());
-
+                stub.sincronizarEstado(peticion);
             } catch (Exception e) {
                 // System.out.println("NetworkService: Error sincronizando estado con el puerto
                 // " + puertoDestino + ". Puede que esté caído.");
             }
+        }
+    }
+
+    // Método para enviar el archivo final a un Worker
+    public void enviarFragmentoBasico(int puertoDestino, String idArchivo, byte[] datos) {
+        ManagedChannel canal = channels.get(puertoDestino);
+        if (canal == null) {
+            ConsoleLogger.error("NetworkService",
+                    "No se encontró canal activo para el Worker en puerto " + puertoDestino);
+            return;
+        }
+
+        try {
+            PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(canal);
+
+            com.pda.distributed.network.grpc.PeticionSubida peticion = com.pda.distributed.network.grpc.PeticionSubida
+                    .newBuilder()
+                    .setIdArchivo(idArchivo)
+                    .setFragmento(com.google.protobuf.ByteString.copyFrom(datos))
+                    .build();
+
+            com.pda.distributed.network.grpc.RespuestaSubida respuesta = stub.subirFragmento(peticion);
+            if (respuesta.getExito()) {
+                ConsoleLogger.exito("NetworkService", "Subida confirmada por el Worker " + puertoDestino);
+            }
+        } catch (Exception e) {
+            ConsoleLogger.error("NetworkService", "Falló el envío al puerto " + puertoDestino + ": " + e.getMessage());
         }
     }
 

@@ -17,6 +17,7 @@ message PingResponse {
 // Mensajes para Sincronizar Estado
 message PeticionEstado {
     string datos_estado = 1;
+    int32 puerto_origen = 2;
 }
 message RespuestaEstado {
     bool exito = 1;
@@ -25,6 +26,7 @@ message RespuestaEstado {
 // Mensajes para Votación (Quorum)
 message PeticionVoto {
     string id_accion = 1;
+    int32 puerto_origen = 2;
 }
 message RespuestaVoto {
     bool acepta = 1;
