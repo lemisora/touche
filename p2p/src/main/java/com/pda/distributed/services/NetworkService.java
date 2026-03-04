@@ -14,6 +14,9 @@ import com.pda.distributed.network.grpc.PingResponse;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Set;
 
 // Abstrae todas las conexiones gRPC
 public class NetworkService {
@@ -23,7 +26,7 @@ public class NetworkService {
 
     // Tolerancia a fallos
     private final Map<Integer, String> hostMap = new ConcurrentHashMap<>();
-    private final java.util.Set<Integer> nodosMuertos = ConcurrentHashMap.newKeySet();
+    private final Set<Integer> nodosMuertos = ConcurrentHashMap.newKeySet();
     private Thread hiloReconexion;
     private boolean activoReconexion = false;
     private int miPuerto;
@@ -169,8 +172,8 @@ public class NetworkService {
     }
 
     // Obtener una lista de los puertos de los nodos conectados
-    public java.util.List<Integer> getConnectedPorts() {
-        return new java.util.ArrayList<>(channels.keySet());
+    public List<Integer> getConnectedPorts() {
+        return new ArrayList<>(channels.keySet());
     }
 
     // Enviar una propuesta de votación a todos los nodos conectados actualmente
