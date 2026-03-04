@@ -15,6 +15,7 @@ import com.pda.distributed.storage.StorageManager;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 // Facade principal del nodo
 public class Nodo {
@@ -134,7 +135,7 @@ public class Nodo {
         networkService.blockUntilShutdown();
     }
 
-    public void promoteToLeader() {
+    public synchronized void promoteToLeader() {
         if (this.currentRole != NodeRole.LEADER) {
             this.currentRole = NodeRole.LEADER;
             ConsoleLogger.setRolConfigurado("LIDER");
@@ -144,7 +145,7 @@ public class Nodo {
         }
     }
 
-    public void demoteToWorker() {
+    public synchronized void demoteToWorker() {
         this.currentRole = NodeRole.WORKER;
         ConsoleLogger.setRolConfigurado("WORKER");
         ConsoleLogger.info("Log", "Nodo ha sido degradado a TRABAJADOR");
@@ -166,63 +167,62 @@ public class Nodo {
     private void iniciarWatchdog() {
         watchdogActivo = true;
         ringWatchdog = new Thread(() -> {
-            // Dar un tiempo inicial de gracia aleatorio (10 a 15 segs) antes de evaluar
-            // líderes
-            // Esto evita que si se inician 8 nodos a la vez, los 8 hagan la elección en el
-            // mismo milisegundo
+            // Jitter inicial para evitar colisiones al arrancar
             try {
                 int randomJitter = (int) (Math.random() * 5000);
                 Thread.sleep(10000 + randomJitter);
-            } catch (InterruptedException ignored) {
-            }
+            } catch (InterruptedException ignored) {}
 
             while (watchdogActivo) {
                 try {
-                    Thread.sleep(5000); // Revisar cada 5 segundos
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
 
-                    // --- Comité Dinámico ---
-                    if ("A".equals(currentRingId) && currentRole == NodeRole.WORKER) {
-                        // En el Anillo A todos deben ser líderes (Comité)
-                        promoteToLeader();
-                    }
-
-                    if (!currentRingId.equals("A")) {
-                        // El anillo B no toma decisiones pesadas ni se auto-elige libremente
+                // Usamos un bloque sincronizado para que nadie más toque las variables mientras evaluamos
+                synchronized (this) {
+                    // Si ya estamos en el Anillo B, este nodo solo es trabajador y no orquesta nada
+                    if (!"A".equals(currentRingId)) {
                         continue;
                     }
 
                     int totalNodos = networkService.getConnectedNodesCount() + 1;
 
-                    if (totalNodos >= 6 && totalNodos != ultimoConteoNodos) {
-                        ConsoleLogger.advertencia("Log",
-                                "Cantidad de nodos: " + totalNodos
-                                        + ". Re-evaluando distribución de Comité y Trabajadores...");
+                    if (totalNodos >= 3 && totalNodos != ultimoConteoNodos) {
+                        ConsoleLogger.advertencia("Log", "Cantidad de nodos: " + totalNodos + ". Re-evaluando distribución de Comité y Trabajadores...");
                         dividirAnillos();
                         ultimoConteoNodos = totalNodos;
-                    } else if (totalNodos < 6 && totalNodos != ultimoConteoNodos) {
-                        ultimoConteoNodos = totalNodos;
-                        // Si bajan de 6 podríamos revertir, pero lo mantendremos simple por ahora
                     }
+                    // Si después de la posible división seguimos en el Anillo A y somos Workers, nos promovemos
+                    else {
+                        if (currentRole == NodeRole.WORKER && "A".equals(currentRingId)) {
+                            promoteToLeader();
+                        }
 
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    watchdogActivo = false;
+                        if (totalNodos != ultimoConteoNodos) {
+                            ultimoConteoNodos = totalNodos; // Actualizamos el tracking si alguien se fue
+                        }
+                    }
                 }
             }
         });
         ringWatchdog.start();
     }
 
-    private void dividirAnillos() {
+    private synchronized void dividirAnillos() {
         List<Integer> todosLosPuertos = networkService.getConnectedPorts();
         todosLosPuertos.add(this.port);
         Collections.sort(todosLosPuertos);
 
         int miIndice = todosLosPuertos.indexOf(this.port);
 
-        if (miIndice >= 3) {
+        if (miIndice >= 2) {
             this.currentRingId = "B";
-            this.discoveryService.setRingId("B");
+            if (this.discoveryService != null) {
+                this.discoveryService.setRingId("B");
+            }
             ConsoleLogger.info("Log", "Fui reasignado al nuevo Anillo B (Trabajadores).");
             demoteToWorker();
         } else {
@@ -230,8 +230,6 @@ public class Nodo {
             promoteToLeader();
         }
 
-        // Ya no cortamos conexiones entre Anillo A y Anillo B, porque el
-        // Comité necesita ver a los Trabajadores para enviarles archivos.
         ConsoleLogger.info("Log", "Reestructuración de anillos completada. Total Nodos: " + todosLosPuertos.size());
     }
 
@@ -251,14 +249,14 @@ public class Nodo {
     public String getArchivosDistribuidos() {
         if (distributedDirectory == null)
             return "Directorio no inicializado.";
-        java.util.Map<String, List<String>> catalogo = distributedDirectory.obtenerEstadoCompleto();
+        Map<String, List<String>> catalogo = distributedDirectory.obtenerEstadoCompleto();
 
         if (catalogo.isEmpty()) {
             return "No hay archivos distribuidos en la red actualmente.";
         }
 
         StringBuilder sb = new StringBuilder("--- ARCHIVOS DISTRIBUIDOS ---\n");
-        for (java.util.Map.Entry<String, List<String>> entry : catalogo.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : catalogo.entrySet()) {
             sb.append("- ").append(entry.getKey()).append(" -> Guardado en: ").append(entry.getValue()).append("\n");
         }
         sb.append("-----------------------------");
