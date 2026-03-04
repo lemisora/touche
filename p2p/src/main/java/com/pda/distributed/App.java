@@ -15,14 +15,16 @@ public class App implements Callable<Integer> {
     @Option(names = { "-i", "--ip" }, defaultValue = "localhost", description = "IP local de este nodo.")
     private String ip;
 
+    @Option(names = {"-I", "--id"}, defaultValue = "0", description = "ID del Nodo, si no se asigna se genera uno en aleatorio")
+    private int id;
+
     @Option(names = { "-n", "--name" }, defaultValue = "Nodo", description = "Nombre del nodo.")
     private String name;
 
     @Option(names = { "-r", "--role" }, defaultValue = "WORKER", description = "Rol inicial (LEADER o WORKER).")
     private NodeRole initialRole;
 
-    @Option(names = { "-s",
-            "--seed" }, description = "IP:PUERTO de un nodo semilla en Tailscale para conectarse directamente.")
+    @Option(names = { "-s", "--seed" }, description = "IP:PUERTO de un nodo semilla en Tailscale para conectarse directamente.")
     private String seedNode;
 
     public static void main(String[] args) {
@@ -37,14 +39,18 @@ public class App implements Callable<Integer> {
             ip = getLocalNetworkIp();
         }
 
-        // Generar un ID numérico aleatorio
-        int idAleatorio = (int) (System.currentTimeMillis() % 10000);
-        String finalName = name + "-" + idAleatorio;
+        // Generar un ID numérico aleatorio en caso de no haber sido ingresado
+        // TODO: Añadir verificación para cambiar identificador en caso de ya existir en el sistema
+        if (id == 0) {
+            this.id = (int) (System.currentTimeMillis() % 10000);
+        }
+
+        String finalName = name + "-" + id;
 
         ConsoleLogger.info("App", "Preparando nodo " + finalName + " con IP: " + ip + "...");
 
         // Instanciar el nodo (el puerto se descubrirá solo)
-        Nodo miNodo = new Nodo(idAleatorio, ip, finalName, initialRole);
+        Nodo miNodo = new Nodo(id, ip, finalName, initialRole);
 
         try {
             miNodo.start();
