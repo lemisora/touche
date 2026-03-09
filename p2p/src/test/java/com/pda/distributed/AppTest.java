@@ -26,7 +26,7 @@ public class AppTest {
         // Assert: Validamos que Picocli reconoció la semilla y el ID
         assertTrue("Debería reconocer el argumento semilla (-s)", cmd.getParseResult().hasMatchedOption("-s"));
         assertEquals("100.10.20.30:50051", cmd.getParseResult().matchedOptionValue("-s", ""));
-        assertEquals("99", cmd.getParseResult().matchedOptionValue("-I", "0"));
+        assertEquals(99, cmd.getParseResult().matchedOptionValue("-I", "0"));
     }
 
     @Test

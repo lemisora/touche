@@ -30,9 +30,9 @@ public class Nodo {
 
     // Servicios de Red y Consenso
     private final NetworkService networkService;
-    // private final QuorumService quorumService;
+    private final QuorumService quorumService;
     // private final StateSyncService stateSyncService;
-    // private final DiscoveryService discoveryService;
+     private final DiscoveryService discoveryService;
 
     // Servicios de Almacenamiento
     // private final StorageCoordinator storageCoordinator;
@@ -56,10 +56,11 @@ public class Nodo {
 
         // Instanciar servicios
         this.networkService = new NetworkService(this);
-        // this.quorumService = new QuorumService();
-        // this.stateSyncService = new StateSyncService();
-        // this.discoveryService = new DiscoveryService();
+        this.quorumService = new QuorumService(this.networkService);
+        this.discoveryService = new DiscoveryService(this.networkService);
 
+        this.networkService.setQuorumService(this.quorumService);
+        this.networkService.setDiscoveryService(this.discoveryService);
         // this.storageCoordinator = new StorageCoordinator();
         // this.fileWatcherService = new FileWatcherService();
         // this.storageManager = new StorageManager();
@@ -92,7 +93,28 @@ public class Nodo {
     * 
     * @param seedAddress Dirección de semilla para iniciar el nodo
     */
-    public void start(String seedAddress){}
+    public void start(String seedAddress) throws IOException{
+        if (seedAddress != null && !seedAddress.trim().isEmpty()) {
+            ConsoleLogger.info(this.name, "-- Iniciando conectando a semilla: " + seedAddress + " --");
+        } else {
+            ConsoleLogger.info(this.name, "-- Iniciando sin semilla. Buscando red local... --");
+        }
+
+        // 1. Iniciar servidor gRPC buscando puerto libre
+        this.port = networkService.startDirectServer();
+        this.nodeAddress = this.ip + ":" + this.port;
+        ConsoleLogger.info(this.name, "Servidor gRPC escuchando en: " + this.nodeAddress);
+
+        // Asignamos el ID al QuorumService
+        this.quorumService.setMiNodeId(this.id);
+
+        // 2. Lógica de conexión
+        if (seedAddress != null && !seedAddress.trim().isEmpty()) {
+            intentarUnirseARed(seedAddress);
+        } else {
+            esperarDescubrimientoONacer();
+        }
+    }
     
     
     /** Detener al nodo y sus servicios */
@@ -100,6 +122,71 @@ public class Nodo {
         ConsoleLogger.info(this.name, "Deteniendo el nodo y sus servicios...");
         if (this.networkService != null) {
             networkService.stop();
+        }
+    }
+
+    private void esperarDescubrimientoONacer() {
+        ConsoleLogger.info(this.name, "Sin semilla. Escuchando UDP por 4 segundos...");
+        try {
+            // Dormimos el hilo principal para darle tiempo al DiscoveryService de escuchar algo
+            Thread.sleep(4000);
+        } catch (InterruptedException ignored) {}
+
+        // Despertamos. ¿El Discovery logró conectarnos?
+        if (this.currentState == NodeState.BLOCKED) {
+            ConsoleLogger.advertencia(this.name, "Nadie respondió en la red local.");
+            iniciarComoGenesis();
+        } else {
+            ConsoleLogger.exito(this.name, "¡Auto-descubrimiento exitoso!");
+        }
+    }
+
+    private void iniciarComoGenesis() {
+        ConsoleLogger.advertencia(this.name, "Asumiendo rol de Génesis (Primer Líder).");
+        this.currentRole = NodeRole.LEADER;
+        this.currentRingID = RingType.RING_A;
+        this.currentState = NodeState.READY;
+
+        ConsoleLogger.setRolConfigurado("LIDER");
+        // Nos registramos a nosotros mismos en nuestro propio mapa
+        quorumService.registrarNodo(this.nodeAddress, this.currentRingID);
+
+        ConsoleLogger.exito(this.name, "Nodo Listo operando como Líder del Anillo A.");
+    }
+
+    private void intentarUnirseARed(String seedAddress) {
+        ConsoleLogger.info(this.name, "Intentando unirse mediante semilla: " + seedAddress);
+        this.currentState = NodeState.BLOCKED;
+
+        // Pedimos al NetworkService que intente la conexión gRPC
+        boolean conexionExitosa = networkService.joinNetwork(seedAddress, this.nodeAddress, this.id);
+
+        if (conexionExitosa) {
+            ConsoleLogger.exito(this.name, "Conexión exitosa. Asignación completada.");
+        } else {
+            ConsoleLogger.error(this.name, "No se pudo conectar a la semilla. Permaneciendo bloqueado.");
+        }
+    }
+
+    /**
+     * Llamado por NetworkService/QuorumService cuando el líder semilla responde al 'JoinRequest'
+     */
+    public void actualizarEstadoDesdeSemilla(String anilloAsignadoStr) {
+        try {
+            this.currentRingID = RingType.valueOf(anilloAsignadoStr);
+            this.currentState = NodeState.READY;
+
+            if (this.currentRingID == RingType.RING_A) {
+                this.currentRole = NodeRole.LEADER;
+                ConsoleLogger.setRolConfigurado("LIDER");
+            } else {
+                this.currentRole = NodeRole.WORKER;
+                ConsoleLogger.setRolConfigurado("WORKER");
+            }
+
+            ConsoleLogger.exito("Nodo", "Asignación completada: " + this.currentRole + " en " + this.currentRingID);
+        } catch (IllegalArgumentException e) {
+            ConsoleLogger.error("Nodo", "Anillo asignado desconocido: " + anilloAsignadoStr);
         }
     }
 
@@ -114,5 +201,13 @@ public class Nodo {
 
     public NodeState getCurrentState() {
         return currentState;
+    }
+
+    public String getIp() {
+        return ip;
+    }
+
+    public String getName() {
+        return name;
     }
 }

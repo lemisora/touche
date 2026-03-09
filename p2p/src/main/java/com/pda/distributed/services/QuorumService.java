@@ -3,6 +3,7 @@ package com.pda.distributed.services;
 import com.pda.distributed.core.RingType;
 import com.pda.distributed.utils.ConsoleLogger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,8 +33,10 @@ public class QuorumService {
      * Registra un nodo directamente (usado por el propio nodo cuando nace como Génesis).
      */
     public void registrarNodo(String nodeAddress, RingType ringType) {
-        // TODO: Añadir el nodeAddress y ringType al nodeRegistry.
-        // TODO: Imprimir en consola que se registró un nuevo nodo.
+        // Añadir el nodeAddress y ringType al nodeRegistry.
+        nodeRegistry.put(nodeAddress, ringType);
+        // Imprimir en consola que se registró un nuevo nodo.
+        ConsoleLogger.info("Quorum", "Se registró un nuevo nodo: " + nodeAddress);
     }
 
     /**
@@ -41,11 +44,19 @@ public class QuorumService {
      * @return El nombre del anillo asignado ("RING_A" o "RING_B").
      */
     public String evaluarIngresoNuevoNodo(String nodeAddress, int nodeId) {
-        // TODO: 1. Contar cuántos nodos en nodeRegistry tienen el valor RingType.RING_A.
-        // TODO: 2. Si hay menos de MAX_LEADERS_RING_A, asignarle RING_A. Si no, asignarle RING_B.
-        // TODO: 3. Guardar el nuevo nodo en nodeRegistry con su anillo correspondiente.
-        // TODO: 4. Retornar el String del anillo ("RING_A" o "RING_B") para responderle.
-        return "RING_B"; // Placeholder
+        long numIntegrantesAnilloA = nodeRegistry
+                .values()
+                .stream()
+                .filter(anillo -> anillo == RingType.RING_A)
+                .count();
+
+        if (numIntegrantesAnilloA < MAX_LEADERS_RING_A) {
+            nodeRegistry.put(nodeAddress, RingType.RING_A);
+            return "RING_A";
+        } else {
+            nodeRegistry.put(nodeAddress, RingType.RING_B);
+            return "RING_B";
+        }
     }
 
     /**
@@ -53,10 +64,7 @@ public class QuorumService {
      * Regla básica del Bully: Solo votamos "Sí" si el ID del candidato es MAYOR que el nuestro.
      */
     public boolean evaluarVotoBully(int candidatoId) {
-        // TODO: 1. Comparar candidatoId con this.miNodeId.
-        // TODO: 2. Si candidatoId > miNodeId, retornamos true (cedemos el liderazgo).
-        // TODO: 3. Si candidatoId < miNodeId, retornamos false (nosotros somos más "grandes", así que iniciamos nuestra propia elección).
-        return false; // Placeholder
+	    return candidatoId > this.miNodeId;
     }
 
     /**
@@ -64,10 +72,31 @@ public class QuorumService {
      */
     public void executeBullyElection() {
         ConsoleLogger.info("Quorum", "Iniciando elección Bully. Mi ID: " + miNodeId);
-        // TODO: 1. Obtener del nodeRegistry todos los nodos que pertenezcan al RING_A.
-        // TODO: 2. Usar networkService para enviar un "PeticionVoto" a todos esos nodos.
-        // TODO: 3. Contar cuántos votos "true" recibimos.
-        // TODO: 4. Si la mayoría acepta, nos proclamamos líder.
+        long votosPositivosRecibidos = 0;
+        // Obtener del nodeRegistry todos los nodos que pertenezcan al RING_A.
+        List<String> direccionesLideres = nodeRegistry.entrySet().stream()
+                .filter(entry -> entry.getValue() == RingType.RING_A)
+                .map(Map.Entry::getKey)
+                .toList();
+        // Usar networkService para enviar un "PeticionVoto" a todos esos nodos.
+        for (String direccion : direccionesLideres) {
+            boolean votoRecibido = networkService.enviarPeticionVoto(direccion, this.miNodeId);
+            if (votoRecibido)
+                votosPositivosRecibidos++;
+        }
+
+        // Calculamos la mayoría (la mitad más uno)
+        int mayoriaNecesaria = (direccionesLideres.size() / 2) + 1;
+        ConsoleLogger.info("Quorum", "Votos obtenidos: " + votosPositivosRecibidos + " de " + direccionesLideres.size());
+
+        // Si la mayoría acepta, nos proclamamos líder.
+        if (votosPositivosRecibidos >= mayoriaNecesaria) {
+            ConsoleLogger.exito("Quorum", "¡Gané la elección! Soy el líder principal del anillo.");
+            // TODO (Futuro): Avisarle al StateSyncService que somos el nuevo líder absoluto
+            // para que coordine los archivos.
+        } else {
+            ConsoleLogger.advertencia("Quorum", "No obtuve los votos suficientes. Cediendo el liderazgo.");
+        }
     }
 
     /**
@@ -75,8 +104,24 @@ public class QuorumService {
      */
     public boolean proposeAction(String action) {
         ConsoleLogger.info("Quorum", "Proponiendo acción a la red: " + action);
-        // TODO: 1. Enviar la propuesta a los líderes del RING_A.
-        // TODO: 2. Si > 50% dice que sí, retornar true.
-        return true; // Placeholder
+
+        long votosPositivosRecibidos = 0;
+
+        List<String> direccionesLideres = nodeRegistry.entrySet().stream()
+                .filter(entry -> entry.getValue() == RingType.RING_A)
+                .map(Map.Entry::getKey)
+                .toList();
+
+        for (String direccion : direccionesLideres) {
+            boolean votoRecibido = networkService.enviarPeticionVoto(direccion, this.miNodeId);
+            if (votoRecibido)
+                votosPositivosRecibidos++;
+        }
+
+        // Calculamos la mayoría (la mitad más uno)
+        int mayoriaNecesaria = (direccionesLideres.size() / 2) + 1;
+        ConsoleLogger.info("Quorum", "Votos obtenidos: " + votosPositivosRecibidos + " de " + direccionesLideres.size());
+
+        return votosPositivosRecibidos >= mayoriaNecesaria;
     }
 }
