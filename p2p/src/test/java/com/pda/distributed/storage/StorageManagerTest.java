@@ -57,7 +57,7 @@ public class StorageManagerTest {
         // Act
         long espacio = storageManager.obtenerEspacioDisponible();
 
-        // Assert: Simplemente validamos que el SO pueda devolver un número válido (> 0)
+        // Assert: Simplemente, validamos que el SO pueda devolver un número válido (> 0)
         assertTrue("El espacio disponible en disco debe ser mayor a 0", espacio > 0);
         System.out.println("Prueba: Espacio detectado en disco de prueba: " + (espacio / 1024 / 1024) + " MB");
     }

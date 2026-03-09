@@ -9,78 +9,71 @@ import java.net.InetSocketAddress;
 import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.Set;
 
-// Se encarga de gritar por la red local "¡Existo!" y escuchar a los demás
+/**
+ * Servicio encargado de gritar por la red local "¡Existo!" y escuchar a los demás.
+ * Actúa como un descubridor automático para evitar poner la IP semilla a mano.
+ */
 public class DiscoveryService {
 
     private final int UDP_PORT = 8888;
     private final String BROADCAST_ADDRESS = "255.255.255.255";
     private final String MAGIC_WORD = "PDA_NODE_ANNOUNCEMENT:";
 
-    private NetworkService networkService;
+    private final NetworkService networkService;
     private int miPuertoGrpc;
 
     private Thread hiloListener;
     private Thread hiloBroadcaster;
     private boolean activo = false;
 
-    // Para evitar reconectarnos a nosotros mismos
-    private final Set<Integer> puertosIgnorados = new HashSet<>();
-
-    private String currRingId = "A"; // Default a "A"
-
-    public DiscoveryService() {
-    }
-
-    public void setNetworkService(NetworkService networkService) {
+    // Inyectamos el NetworkService que es quien controla a este descubridor
+    public DiscoveryService(NetworkService networkService) {
         this.networkService = networkService;
     }
 
-    public void setRingId(String ringId) {
-        this.currRingId = ringId;
-    }
-
+    /**
+     * Inicia los hilos de escucha y anuncio.
+     * @param miPuertoGrpc El puerto en el que este nodo levantó su servidor gRPC.
+     */
     public void iniciar(int miPuertoGrpc) {
         this.miPuertoGrpc = miPuertoGrpc;
         this.activo = true;
-        this.puertosIgnorados.add(miPuertoGrpc); // Yo no me auto-descubro
 
         iniciarListener();
         iniciarBroadcaster();
 
-        ConsoleLogger.info("Discovery",
-                "Servicio de auto-descubrimiento iniciado (UDP " + UDP_PORT + ") [Anillo: " + currRingId + "]");
+        ConsoleLogger.info("Discovery", "Servicio UDP iniciado en puerto " + UDP_PORT + ". Buscando nodos locales...");
     }
 
     public void detener() {
         this.activo = false;
-        if (hiloListener != null)
+        if (hiloListener != null) {
             hiloListener.interrupt();
-        if (hiloBroadcaster != null)
+        }
+        if (hiloBroadcaster != null) {
             hiloBroadcaster.interrupt();
+        }
+        ConsoleLogger.info("Discovery", "Servicio UDP detenido.");
     }
 
     private void iniciarListener() {
         hiloListener = new Thread(() -> {
             try (DatagramSocket socket = new DatagramSocket(null)) {
-                // Configuramos para poder reusar el puerto si hay varios nodos en el mismo
-                // local
                 socket.setReuseAddress(true);
-                // Escuchar explícitamente en todas las interfaces (0.0.0.0)
                 socket.bind(new InetSocketAddress("0.0.0.0", UDP_PORT));
 
                 byte[] buffer = new byte[1024];
 
                 while (activo) {
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                    socket.receive(packet); // Se queda esperando mensajes
+                    socket.receive(packet); // Se bloquea esperando mensajes
 
-                    String mensaje = new String(packet.getData(), 0, packet.getLength());
+                    String mensaje = new String(packet.getData(), 0, packet.getLength()).trim();
 
                     if (mensaje.startsWith(MAGIC_WORD)) {
-                        procesarAnuncio(mensaje, packet.getAddress().getHostAddress());
+                        String ipOrigen = packet.getAddress().getHostAddress();
+                        procesarAnuncio(mensaje, ipOrigen);
                     }
                 }
             } catch (Exception e) {
@@ -89,6 +82,7 @@ public class DiscoveryService {
                 }
             }
         });
+        hiloListener.setDaemon(true); // Para que no bloquee el apagado del programa
         hiloListener.start();
     }
 
@@ -98,44 +92,35 @@ public class DiscoveryService {
                 socket.setBroadcast(true);
 
                 while (activo) {
-                    // Ahora anunciamos: PDA_NODE_ANNOUNCEMENT:<PUERTO>:<ANILLO>
-                    String mensaje = MAGIC_WORD + miPuertoGrpc + ":" + currRingId;
+                    // Anunciamos solo nuestro puerto: PDA_NODE_ANNOUNCEMENT:50051
+                    String mensaje = MAGIC_WORD + miPuertoGrpc;
                     byte[] buffer = mensaje.getBytes();
 
-                    // Intentar enviar a 255.255.255.255 primero (por defecto)
+                    // 1. Intento general de Broadcast (255.255.255.255)
                     try {
-                        socket.send(new DatagramPacket(buffer, buffer.length,
-                                InetAddress.getByName(BROADCAST_ADDRESS), UDP_PORT));
-                    } catch (Exception e) {
-                    }
+                        socket.send(new DatagramPacket(buffer, buffer.length, InetAddress.getByName(BROADCAST_ADDRESS), UDP_PORT));
+                    } catch (Exception ignored) {}
 
-                    // Enviar explícitamente a todas las interfaces locales (para asegurar localhost
-                    // y LAN)
+                    // 2. Enviar explícitamente a todas las interfaces locales (LAN/Wi-Fi)
                     Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
                     while (interfaces.hasMoreElements()) {
                         NetworkInterface networkInterface = interfaces.nextElement();
-                        if (!networkInterface.isUp())
-                            continue;
+                        if (!networkInterface.isUp()) continue;
 
                         for (InterfaceAddress interfaceAddress : networkInterface.getInterfaceAddresses()) {
                             InetAddress broadcast = interfaceAddress.getBroadcast();
-                            if (broadcast == null)
-                                continue;
+                            if (broadcast == null) continue;
 
                             try {
-                                DatagramPacket packet = new DatagramPacket(buffer, buffer.length, broadcast, UDP_PORT);
-                                socket.send(packet);
-                            } catch (Exception e) {
-                            }
+                                socket.send(new DatagramPacket(buffer, buffer.length, broadcast, UDP_PORT));
+                            } catch (Exception ignored) {}
                         }
                     }
 
-                    // Asegurar loopback local
+                    // 3. Asegurar Loopback para pruebas en la misma computadora (localhost)
                     try {
-                        socket.send(new DatagramPacket(buffer, buffer.length,
-                                InetAddress.getByName("127.255.255.255"), UDP_PORT));
-                    } catch (Exception e) {
-                    }
+                        socket.send(new DatagramPacket(buffer, buffer.length, InetAddress.getByName("127.255.255.255"), UDP_PORT));
+                    } catch (Exception ignored) {}
 
                     // Gritamos cada 3 segundos
                     Thread.sleep(3000);
@@ -146,35 +131,32 @@ public class DiscoveryService {
                 }
             }
         });
+        hiloBroadcaster.setDaemon(true);
         hiloBroadcaster.start();
     }
 
     private void procesarAnuncio(String mensaje, String ipOrigen) {
         try {
-            // mensaje = PDA_NODE_ANNOUNCEMENT:50000:A
-            String cuerpo = mensaje.substring(MAGIC_WORD.length());
-            String[] partes = cuerpo.split(":");
-            int puertoGrpcAjeno = Integer.parseInt(partes[0]);
-            String anilloAjeno = "A";
-            if (partes.length > 1) {
-                anilloAjeno = partes[1].trim();
+            // Ejemplo de mensaje: PDA_NODE_ANNOUNCEMENT:50051
+            String puertoString = mensaje.substring(MAGIC_WORD.length()).trim();
+
+            // Construimos la clave unificada "IP:Puerto"
+            String direccionDescubierta = ipOrigen + ":" + puertoString;
+            String miDireccion = networkService.getMiDireccion();
+
+            // 1. Evitar conectarnos a nosotros mismos
+            if (direccionDescubierta.equals(miDireccion)) {
+                return;
             }
 
-            // Quitamos la restricción de anillo para que el Comité (A)
-            // pueda conectarse y enviarle archivos a los Workers (B)
-            // if (!this.currRingId.equals(anilloAjeno)) {
-            // return; // Ignorar nodos de otro anillo
-            // }
+            // 2. Evitar reconectar si ya estamos conectados a este nodo
+            if (!networkService.estaConectado(direccionDescubierta)) {
+                ConsoleLogger.info("Discovery", "¡Grito UDP escuchado! Nodo local descubierto en: " + direccionDescubierta);
 
-            // Verificamos que no seamos nosotros mismos y que no estemos conectados ya
-            if (!puertosIgnorados.contains(puertoGrpcAjeno) && networkService != null) {
-                if (!networkService.estaConectado(puertoGrpcAjeno)) {
-                    ConsoleLogger.info("Discovery",
-                            "¡Nuevo nodo descubierto automáticamente en " + ipOrigen + ":" + puertoGrpcAjeno
-                                    + " [Anillo " + anilloAjeno + "]!");
-                    networkService.sendPing(ipOrigen, puertoGrpcAjeno);
-                }
+                // 3. ¡Magia! Intentamos unirnos usando este nodo recién descubierto como semilla
+                networkService.joinNetwork(direccionDescubierta, miDireccion, networkService.getMiId());
             }
+
         } catch (Exception e) {
             ConsoleLogger.advertencia("Discovery", "Mensaje UDP malformado ignorado: " + mensaje);
         }

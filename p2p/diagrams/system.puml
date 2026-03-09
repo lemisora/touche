@@ -43,7 +43,6 @@ package "Core" {
         - int id
         - String ip
         - int port
-        ' Nombre del nodo'
         - String name
         - String nodeAddress 
         - NodeRole currentRole
@@ -51,7 +50,7 @@ package "Core" {
         - NodeState currentState
         --
         - NetworkService networkService
-        - QuorumManager quorumManager
+        - QuorumService quorumService
         - StateSyncService stateSyncService
         - FileWatcherService fileWatcherService
         - StorageCoordinator storageCoordinator
@@ -78,18 +77,40 @@ package "Services" {
         - watchArchivosEntrada() : void
     }
 
-    class QuorumManager {
+    class DiscoveryService {
+        - int UDP_PORT = 8888
+        - String BROADCAST_ADDRESS
+        - Thread hiloListener
+        - Thread hiloBroadcaster
+        - boolean activo
+        --
+        + iniciar(miPuertoGrpc: int) : void
+        + detener() : void
+        - iniciarListener() : void
+        - iniciarBroadcaster() : void
+        - procesarAnuncio(mensaje, ipOrigen) : void
+    }
+    note bottom of DiscoveryService
+        Auto-descubrimiento UDP en LAN.
+        Grita su puerto y escucha a otros.
+        Delega el joinNetwork() al NetworkService.
+    end note
+
+    class QuorumService {
         - int MAX_LEADERS_RING_A
         - Map<String, RingType> nodeRegistry
+        - int miNodeId
         ....
         + evaluarIngresoNuevoNodo(nodeAddress, nodeId) : String
         + evaluarVotoBully(candidatoId) : boolean
+        + executeBullyElection() : void
+        + proposeAction(action) : boolean
         + registrarNodo(nodeAddress, ringType) : void
     }
-    note bottom of QuorumManager
+    note bottom of QuorumService
         nodeRegistry usa "IP:Puerto" como clave.
-        Decide a qué anillo va cada nodo nuevo
-        basado en MAX_LEADERS_RING_A.
+        Decide a qué anillo va cada nodo nuevo.
+        Gestiona el algoritmo Bully y elecciones.
     end note
 
     class StateSyncService {
@@ -116,15 +137,17 @@ package "Services" {
         - List<String> seedNodes
         - Server grpcServer
         - Map<String, ManagedChannel> activeChannels
+        - DiscoveryService discoveryService
         ....
         + startDirectServer() : int
         + joinNetwork(seedAddress, miDireccion, miId) : boolean
         + sendHeartbeat() : void
         + sendFileChunk(targetAddress, chunkData) : void
+        + estaConectado(direccionDestino) : boolean
     }
     note bottom of NetworkService
         Gestiona la conexión directa gRPC.
-        joinNetwork hace la llamada remota al semilla.
+        Controla el DiscoveryService para redes locales.
     end note
 }
 
@@ -160,22 +183,26 @@ package "Network gRPC" {
 ' Relación de App a Core
 App --> Node : instancia y arranca >
 
-' Relaciones de composición
+' Relaciones de composición principal
 Node *--> NetworkService 
-Node *--> QuorumManager 
+Node *--> QuorumService
 Node *--> StateSyncService 
 Node *--> FileWatcherService 
 Node *--> StorageCoordinator 
 
-' Relaciones de uso
+' Relación de red y descubrimiento
+NetworkService *--> DiscoveryService : crea y controla
+DiscoveryService --> NetworkService : usa (joinNetwork)
+
+' Relaciones de uso entre servicios
 FileWatcherService --> StorageCoordinator : encola archivos
-QuorumManager --> NetworkService : envía votos/Bully
+QuorumService --> NetworkService : envía votos/Bully
 StateSyncService --> NetworkService : envía syncs
 StorageCoordinator --> StorageManager : controla I/O
 StorageCoordinator --> DistributedDirectory : consulta/escribe Map
 
 ' Registro gRPC
 NodeServiceGrpcImpl --> NetworkService : registra
-NodeServiceGrpcImpl --> QuorumManager : consulta decisiones
+NodeServiceGrpcImpl --> QuorumService : consulta decisiones
 
 @enduml

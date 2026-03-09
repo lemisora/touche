@@ -37,7 +37,7 @@ public class StorageManager {
 
     /**
      * Guarda un arreglo de bytes en el disco físico.
-     * 
+     *
      * @param idFragmento Nombre único del fragmento (ej. "video.mp4.part1")
      * @param datos       Los bytes puros a guardar
      * @return true si se guardó con éxito, false si hubo un error
@@ -79,7 +79,7 @@ public class StorageManager {
     /**
      * Consulta el espacio libre del disco duro (Útil para el Algoritmo de
      * Distribución).
-     * 
+     *
      * @return Espacio libre en bytes.
      */
     public long obtenerEspacioDisponible() {
@@ -89,6 +89,42 @@ public class StorageManager {
         } catch (IOException e) {
             System.err.println("[Storage] Error al consultar espacio disponible.");
             return 0;
+        }
+    }
+
+    /**
+     * Reconstruye el archivo original uniendo todos sus fragmentos y elimina los
+     * temporales.
+     */
+    public boolean ensamblarArchivo(String nombreOriginal) {
+        Path rutaFinal = directorioAlmacenamiento.resolve(nombreOriginal);
+
+        try (FileOutputStream fos = new FileOutputStream(rutaFinal.toFile())) {
+            int numeroFragmento = 0;
+
+            while (true) {
+                Path rutaFragmento = directorioAlmacenamiento.resolve(nombreOriginal + "_part" + numeroFragmento);
+
+                // Si el fragmento no existe, significa que ya pegamos todos
+                if (!Files.exists(rutaFragmento)) {
+                    break;
+                }
+
+                // Pegar los bytes del fragmento al archivo final
+                Files.copy(rutaFragmento, fos);
+
+                // Borrar el fragmento temporal para limpiar el disco
+                Files.delete(rutaFragmento);
+                numeroFragmento++;
+            }
+
+            System.out.println("[Storage] 📦 Ensamblado completado con éxito: " + nombreOriginal + " (Unió "
+                    + numeroFragmento + " piezas).");
+            return true;
+
+        } catch (IOException e) {
+            System.err.println("[Storage] Error crítico al ensamblar " + nombreOriginal + ": " + e.getMessage());
+            return false;
         }
     }
 }

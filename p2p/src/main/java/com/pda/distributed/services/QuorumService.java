@@ -1,117 +1,82 @@
 package com.pda.distributed.services;
 
+import com.pda.distributed.core.RingType;
 import com.pda.distributed.utils.ConsoleLogger;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-// Administra las votaciones y toma de decisiones
 public class QuorumService {
 
-    // Nuestro puente para enviar mensajes a otros nodos
-    private NetworkService networkService;
+    private final NetworkService networkService;
+    
+    // Límite estático de líderes
+    private final int MAX_LEADERS_RING_A = 2;
+    
+    // Registro global de nodos (K: "IP:Puerto", V: Tipo de Anillo)
+    private final Map<String, RingType> nodeRegistry;
 
-    // Mapa para guardar los votos recibidos: ID de la acción -> Cantidad de votos
-    // Usamos ConcurrentHashMap porque varios hilos (peticiones gRPC) podrían votar
-    // al mismo tiempo
-    private final Map<String, Integer> votosActivos = new ConcurrentHashMap<>();
+    // ID de nuestro propio nodo para el algoritmo Bully
+    private int miNodeId = -1;
 
-    // Callbacks dinámicos por ID de acción
-    private final Map<String, Runnable> callbacksActivos = new ConcurrentHashMap<>();
-
-    // Callback que se ejecutará al ganar una elección
-    private Runnable onElectionWon;
-
-    public QuorumService() {
-        // Inicialización
-    }
-
-    public void setOnElectionWon(Runnable onElectionWon) {
-        this.onElectionWon = onElectionWon;
-    }
-
-    // Inyección de dependencias: Le pasamos el NetworkService creado en el Nodo
-    public void setNetworkService(NetworkService networkService) {
+    public QuorumService(NetworkService networkService) {
         this.networkService = networkService;
+        this.nodeRegistry = new ConcurrentHashMap<>();
     }
 
-    // Método para proponer una votación a la red con un callback específico
-    public void proponerAccion(String idAccion, String accion, Runnable callback) {
-        ConsoleLogger.info("Log", "Quorum: Proponiendo acción '" + idAccion + "': " + accion);
-
-        if (callback != null) {
-            callbacksActivos.put(idAccion, callback);
-        }
-
-        // Empezamos votando por nosotros mismos (el nodo que propone aprueba su propia
-        // idea)
-        votosActivos.put(idAccion, votosActivos.getOrDefault(idAccion, 0) + 1);
-
-        // Verificamos inmediatamente por si ya tenemos el quórum (ej. un solo nodo)
-        if (verificarQuorum(idAccion)) {
-            return;
-        }
-
-        // Usamos NetworkService para mandar esta propuesta a todos los otros Líderes
-        if (networkService != null) {
-            ConsoleLogger.info("Log", "Quorum: Enviando propuesta a la red...");
-            networkService.solicitarVotos(idAccion);
-        } else {
-            ConsoleLogger.error("Error", "Quorum: NetworkService no inicializado!");
-        }
+    public void setMiNodeId(int id) {
+        this.miNodeId = id;
     }
 
-    // Método para proponer una votación a la red sin callback dinámico
-    public void proponerAccion(String idAccion, String accion) {
-        proponerAccion(idAccion, accion, null);
+    /**
+     * Registra un nodo directamente (usado por el propio nodo cuando nace como Génesis).
+     */
+    public void registrarNodo(String nodeAddress, RingType ringType) {
+        // TODO: Añadir el nodeAddress y ringType al nodeRegistry.
+        // TODO: Imprimir en consola que se registró un nuevo nodo.
     }
 
-    // Método que se llama cuando recibimos el voto de un compañero
-    public void recibirVoto(String idAccion, boolean acepta) {
-        if (acepta) {
-            // Sumamos 1 al conteo actual de esta acción (si no existe, empezamos en 0 + 1)
-            int votosActuales = votosActivos.getOrDefault(idAccion, 0) + 1;
-            votosActivos.put(idAccion, votosActuales);
-
-            System.out
-                    .println("Quorum: Voto a favor recibido para '" + idAccion + "'. Votos totales: " + votosActuales);
-
-            // Verificamos si ya ganamos
-            verificarQuorum(idAccion);
-        } else {
-            ConsoleLogger.info("Log", "Quorum: Voto en contra recibido para '" + idAccion + "'");
-        }
+    /**
+     * Evalúa la petición de un nodo nuevo que quiere unirse a la red.
+     * @return El nombre del anillo asignado ("RING_A" o "RING_B").
+     */
+    public String evaluarIngresoNuevoNodo(String nodeAddress, int nodeId) {
+        // TODO: 1. Contar cuántos nodos en nodeRegistry tienen el valor RingType.RING_A.
+        // TODO: 2. Si hay menos de MAX_LEADERS_RING_A, asignarle RING_A. Si no, asignarle RING_B.
+        // TODO: 3. Guardar el nuevo nodo en nodeRegistry con su anillo correspondiente.
+        // TODO: 4. Retornar el String del anillo ("RING_A" o "RING_B") para responderle.
+        return "RING_B"; // Placeholder
     }
 
-    // Método privado para revisar si ya juntamos suficientes votos
-    private boolean verificarQuorum(String idAccion) {
-        int votos = votosActivos.getOrDefault(idAccion, 0);
+    /**
+     * Algoritmo Bully: Evalúa si le damos nuestro voto a un candidato que quiere ser líder.
+     * Regla básica del Bully: Solo votamos "Sí" si el ID del candidato es MAYOR que el nuestro.
+     */
+    public boolean evaluarVotoBully(int candidatoId) {
+        // TODO: 1. Comparar candidatoId con this.miNodeId.
+        // TODO: 2. Si candidatoId > miNodeId, retornamos true (cedemos el liderazgo).
+        // TODO: 3. Si candidatoId < miNodeId, retornamos false (nosotros somos más "grandes", así que iniciamos nuestra propia elección).
+        return false; // Placeholder
+    }
 
-        // Calculamos el quorum dinámicamente basado en los nodos conectados
-        int totalNodos = 1; // Me incluyo a mí mismo
-        if (networkService != null) {
-            totalNodos += networkService.getConnectedNodesCount();
-        }
-        int votosRequeridos = (totalNodos / 2) + 1;
+    /**
+     * Inicia el proceso de elección para ver si este nodo se convierte en el líder principal.
+     */
+    public void executeBullyElection() {
+        ConsoleLogger.info("Quorum", "Iniciando elección Bully. Mi ID: " + miNodeId);
+        // TODO: 1. Obtener del nodeRegistry todos los nodos que pertenezcan al RING_A.
+        // TODO: 2. Usar networkService para enviar un "PeticionVoto" a todos esos nodos.
+        // TODO: 3. Contar cuántos votos "true" recibimos.
+        // TODO: 4. Si la mayoría acepta, nos proclamamos líder.
+    }
 
-        if (votos >= votosRequeridos) {
-            ConsoleLogger.info("Log", ">>> QUORUM ALCANZADO para la acción: " + idAccion + " con " + votos + "/"
-                    + votosRequeridos + " votos <<<");
-
-            // Evitamos ejecutarlo múltiples veces limpiando el progreso
-            votosActivos.remove(idAccion);
-
-            // Verificamos si hay un callback específico para esta acción
-            if (callbacksActivos.containsKey(idAccion)) {
-                Runnable callback = callbacksActivos.remove(idAccion);
-                callback.run();
-            }
-            // Si no, volvemos a la lógica por defecto de ELECTION
-            else if ("ELECTION".equals(idAccion) && onElectionWon != null) {
-                onElectionWon.run();
-            }
-            return true;
-        }
-        return false;
+    /**
+     * Propone una acción (ej. borrar un archivo, cambiar de líder) y espera mayoría.
+     */
+    public boolean proposeAction(String action) {
+        ConsoleLogger.info("Quorum", "Proponiendo acción a la red: " + action);
+        // TODO: 1. Enviar la propuesta a los líderes del RING_A.
+        // TODO: 2. Si > 50% dice que sí, retornar true.
+        return true; // Placeholder
     }
 }
