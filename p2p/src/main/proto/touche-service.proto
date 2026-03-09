@@ -7,6 +7,7 @@ option java_multiple_files = true;
 
 message PingRequest {
     string mensaje_saludo = 1;
+    int32 id_nodo = 2;
 }
 
 message PingResponse {
@@ -34,8 +35,10 @@ message RespuestaVoto {
 
 // Mensajes para Subida de Archivos
 message PeticionSubida {
-    string id_archivo = 1;
-    bytes fragmento = 2;
+    string nombre_original = 1;
+    string id_fragmento = 2;
+    bytes fragmento = 3;
+    bool es_ultimo_fragmento = 4;
 }
 message RespuestaSubida {
     bool exito = 1;
@@ -48,3 +51,4 @@ service PdaService {
     rpc votar(PeticionVoto) returns (RespuestaVoto) {}
     rpc subirFragmento(PeticionSubida) returns (RespuestaSubida) {}
 }
+
