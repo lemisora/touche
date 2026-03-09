@@ -1,0 +1,181 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam ranksep 30
+skinparam nodesep 30
+skinparam classAttributeIconSize 0
+
+package "CLI / Entrypoint" {
+    class App {
+        - String ip
+        - int id
+        - String name
+        - String seedNode
+        --
+        + main(args: String[]) : void
+        + call() : Integer
+    }
+    note right of App
+        Usa Picocli para los argumentos.
+        Instancia el Nodo, maneja el ciclo 
+        de vida y expone la consola local.
+    end note
+}
+
+package "Core" {
+    enum NodeRole <<enumeration>> {
+        LEADER
+        WORKER
+    }
+
+    enum NodeState <<enumeration>> {
+        BLOCKED
+        READY
+    }
+
+    enum RingType <<enumeration>> {
+        RING_A
+        RING_B
+        NONE
+    }
+
+    class Node {
+        - int id
+        - String ip
+        - int port
+        ' Nombre del nodo'
+        - String name
+        - String nodeAddress 
+        - NodeRole currentRole
+        - RingType currentRingId
+        - NodeState currentState
+        --
+        - NetworkService networkService
+        - QuorumManager quorumManager
+        - StateSyncService stateSyncService
+        - FileWatcherService fileWatcherService
+        - StorageCoordinator storageCoordinator
+        --
+        + start(seedAddress) : void
+        + stop() : void
+        - iniciarComoGenesis() : void
+        - intentarUnirseARed(seedAddress) : void
+        + actualizarEstadoDesdeSemilla(anilloAsignado) : void
+    }
+    note left of Node
+        nodeAddress combina "IP:Puerto" como CLAVE ÚNICA.
+        El método start() decide si asume el liderazgo (Génesis)
+        o si se bloquea esperando unirse vía Semilla.
+    end note
+}
+
+package "Services" {
+    class FileWatcherService {
+        - BlockingQueue<String> fileQueue
+        - Thread watcherThread
+        --
+        + start() : void
+        - watchArchivosEntrada() : void
+    }
+
+    class QuorumManager {
+        - int MAX_LEADERS_RING_A
+        - Map<String, RingType> nodeRegistry
+        ....
+        + evaluarIngresoNuevoNodo(nodeAddress, nodeId) : String
+        + evaluarVotoBully(candidatoId) : boolean
+        + registrarNodo(nodeAddress, ringType) : void
+    }
+    note bottom of QuorumManager
+        nodeRegistry usa "IP:Puerto" como clave.
+        Decide a qué anillo va cada nodo nuevo
+        basado en MAX_LEADERS_RING_A.
+    end note
+
+    class StateSyncService {
+        - long lastUpdateTimestamp
+        ....
+        + broadcastMapUpdate(incrementalData) : void
+        + syncNodeStates() : void
+        + recibirEstado(estado, direccionOrigen) : void
+    }
+
+    class StorageCoordinator {
+        - BlockingQueue<String> uploadQueue
+        - StorageManager storageManager
+        - DistributedDirectory directory
+        - int DEFAULT_REPLICAS = 2
+        - int CHUNK_SIZE_MB = 2
+        ....
+        + processUploadQueue() : void
+        + allocateToNodes(fileMetadata) : List<String>
+        + handleIncomingChunk(fileId, chunkIndex, data, totalExpected) : void
+    }
+
+    class NetworkService {
+        - List<String> seedNodes
+        - Server grpcServer
+        - Map<String, ManagedChannel> activeChannels
+        ....
+        + startDirectServer() : int
+        + joinNetwork(seedAddress, miDireccion, miId) : boolean
+        + sendHeartbeat() : void
+        + sendFileChunk(targetAddress, chunkData) : void
+    }
+    note bottom of NetworkService
+        Gestiona la conexión directa gRPC.
+        joinNetwork hace la llamada remota al semilla.
+    end note
+}
+
+package "Storage" {
+    class StorageManager {
+        - Path archivosDir
+        - Map<String, Integer> chunkCounters
+        ....
+        + saveChunk(fileId, chunkIndex, data, totalExpected) : void
+        - assembleFile(fileId) : void
+    }
+
+    class DistributedDirectory {
+        - Map<String, FileMetadata> globalFileMap
+        ....
+        + getFileLocation(fileName) : List<String>
+        + updateMap(fileData) : void
+    }
+}
+
+package "Network gRPC" {
+    class NodeServiceGrpcImpl {
+        - String miDireccion
+        ....
+        + join(JoinRequest) : JoinResponse
+        + heartbeat(PingRequest) : PingResponse
+        + sincronizarEstado(PeticionEstado) : RespuestaEstado
+        + votar(PeticionVoto) : RespuestaVoto
+        + subirFragmento(PeticionSubida) : RespuestaSubida
+    }
+}
+
+' Relación de App a Core
+App --> Node : instancia y arranca >
+
+' Relaciones de composición
+Node *--> NetworkService 
+Node *--> QuorumManager 
+Node *--> StateSyncService 
+Node *--> FileWatcherService 
+Node *--> StorageCoordinator 
+
+' Relaciones de uso
+FileWatcherService --> StorageCoordinator : encola archivos
+QuorumManager --> NetworkService : envía votos/Bully
+StateSyncService --> NetworkService : envía syncs
+StorageCoordinator --> StorageManager : controla I/O
+StorageCoordinator --> DistributedDirectory : consulta/escribe Map
+
+' Registro gRPC
+NodeServiceGrpcImpl --> NetworkService : registra
+NodeServiceGrpcImpl --> QuorumManager : consulta decisiones
+
+@enduml
