@@ -1,130 +1,139 @@
 package com.pda.distributed.storage;
 
-//import java.io.File;
-import java.io.FileOutputStream;
+import com.pda.distributed.utils.ConsoleLogger;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-// Se encarga de guardar, leer y gestionar el espacio de los archivos reales en el disco duro
 public class StorageManager {
 
-    private final Path directorioAlmacenamiento;
+    // Atributos definidos en el diagrama PlantUML
+    private final Path archivosDir;
+    private final Map<String, Integer> chunkCounters;
 
-    // Constructor por defecto para Producción
-    public StorageManager() {
-        this.directorioAlmacenamiento = Paths.get("./archivos");
-        inicializarDirectorio();
-    }
-
-    // Constructor inyectable para Pruebas (Testing)
-    public StorageManager(String rutaPersonalizada) {
-        this.directorioAlmacenamiento = Paths.get(rutaPersonalizada);
-        inicializarDirectorio();
-    }
-
-    private void inicializarDirectorio() {
+    public StorageManager(String rutaDirectorio) {
+        // Inicializamos la ruta usando la API moderna NIO de Java
+        this.archivosDir = Paths.get(rutaDirectorio);
+        this.chunkCounters = new ConcurrentHashMap<>();
+        
+        // TODO: Crear el directorio físicamente si no existe. 
+        // Pista: Usa Files.createDirectories(this.archivosDir); y enciérralo en un try-catch.
         try {
-            if (!Files.exists(directorioAlmacenamiento)) {
-                Files.createDirectories(directorioAlmacenamiento);
-                System.out.println("StorageManager: Creado directorio en " + directorioAlmacenamiento.toAbsolutePath());
-            }
+            Files.createDirectories(this.archivosDir);
         } catch (IOException e) {
-            System.err.println("StorageManager: Error crítico al crear el directorio: " + e.getMessage());
+            
+        }
+    }
+
+    // ===================================================================================
+    // Métodos de Orquestación de Fragmentos (Directo del Diagrama PlantUML)
+    // ===================================================================================
+
+    /**
+     * Guarda un fragmento y verifica si ya tenemos todos para ensamblarlo.
+     */
+    public void saveChunk(String fileId, int chunkIndex, byte[] data, int totalExpected) {
+        // Crear el nombre del fragmento (ej. fileId + ".part" + chunkIndex).
+        String chunkFileName = fileId + ".part" + chunkIndex;
+        // Usar el método local guardarFragmento(...) para escribir los bytes en disco.
+        boolean fragmentoGuardado = guardarFragmento(chunkFileName, data);
+        // Si se guardó con éxito, actualizar el contador en chunkCounters:
+        if (fragmentoGuardado) {
+            int fragmentosActuales = chunkCounters.merge(fileId, 1, Integer::sum);
+            ConsoleLogger.info("StorageManager", "Fragmento guardado correctamente " 
+                + fragmentosActuales 
+                + "/" + totalExpected);
+            
+            if (fragmentosActuales == totalExpected) {
+                assembleFile(fileId, totalExpected);
+            }
         }
     }
 
     /**
-     * Guarda un arreglo de bytes en el disco físico.
-     *
-     * @param idFragmento Nombre único del fragmento (ej. "video.mp4.part1")
-     * @param datos       Los bytes puros a guardar
-     * @return true si se guardó con éxito, false si hubo un error
+     * Ensambla todos los fragmentos de un archivo en uno solo cuando la descarga termina.
      */
-    public boolean guardarFragmento(String idFragmento, byte[] datos) {
-        Path rutaArchivo = directorioAlmacenamiento.resolve(idFragmento);
+    private void assembleFile(String fileId, int totalExpected) {
+        ConsoleLogger.info("Storage", "Ensamblando archivo final: " + fileId);
+        Path rutaArchivoFinal = this.archivosDir.resolve(fileId);
+        
+        // Crear un archivo nuevo vacío con el nombre original (fileId).
+        try {
+            Files.deleteIfExists(rutaArchivoFinal);
+            Files.createFile(rutaArchivoFinal);
+            
+            // Hacer un ciclo para leer secuencialmente todos los fragmentos (ej. .part0, .part1...).
+            for (int i = 0; i < totalExpected; i++) {
+                String nombreFragmentoTemp = fileId + ".part" + i;
+                Path rutaFragmentoTemp = this.archivosDir.resolve(nombreFragmentoTemp);
+                
+                byte[] contenidoFragmento = Files.readAllBytes(rutaFragmentoTemp);
+               
+               Files.write(rutaArchivoFinal, contenidoFragmento, StandardOpenOption.APPEND);
+               
+               // Eliminar fragmento tras concatenarlo en el archivo final
+               Files.delete(rutaFragmentoTemp);
+            }
+            ConsoleLogger.info("StorageManager", "Se ha escrito exitosamente en disco el archivo " + fileId);
+        } catch (IOException e) {
+            ConsoleLogger.error("StorageManager", "Error al obtener el fragmento para ensamblado. " + e.getMessage());
+        } finally {
+            chunkCounters.remove(fileId);
+        }
+    }
 
-        // Usamos try-with-resources para asegurar que el archivo se cierre siempre
-        try (FileOutputStream fos = new FileOutputStream(rutaArchivo.toFile())) {
-            fos.write(datos);
-            System.out
-                    .println("[Storage] Fragmento guardado en disco: " + idFragmento + " (" + datos.length + " bytes)");
+    // ===================================================================================
+    // Métodos Utilitarios y de Entrada/Salida (Requeridos por StorageManagerTest.java)
+    // ===================================================================================
+
+    /**
+     * Guarda físicamente un arreglo de bytes en un archivo.
+     */
+    public boolean guardarFragmento(String nombreFragmento, byte[] datos) {
+        // Construir la ruta completa usando this.archivosDir.resolve(nombreFragmento).
+        Path rutaChunk = this.archivosDir.resolve(nombreFragmento);
+        // Escribir los bytes en esa ruta usando Files.write(...).
+        try {
+            Files.write(rutaChunk, datos, StandardOpenOption.CREATE);
             return true;
         } catch (IOException e) {
-            System.err.println("[Storage] Error al guardar el fragmento " + idFragmento + ": " + e.getMessage());
+            ConsoleLogger.error("StorageManager", "Error al guardar el fragmento" + e.getMessage());
             return false;
         }
     }
 
     /**
-     * Lee un fragmento completo desde el disco hacia la memoria (RAM).
+     * Lee físicamente un arreglo de bytes desde el disco.
      */
-    public byte[] leerFragmento(String idFragmento) {
-        Path rutaArchivo = directorioAlmacenamiento.resolve(idFragmento);
-
-        if (!Files.exists(rutaArchivo)) {
-            System.err.println("[Storage] El fragmento solicitado no existe: " + idFragmento);
+    public byte[] leerFragmento(String nombreFragmento) {
+        // Construir la ruta completa.
+        Path rutaChunk = this.archivosDir.resolve(nombreFragmento);
+        // Validar si el archivo existe usando Files.exists(...).
+        if (!Files.exists(rutaChunk)) {
             return null;
         }
-
+        // Leer los bytes usando Files.readAllBytes(...) y retornarlos (o null si falla/no existe).
         try {
-            return Files.readAllBytes(rutaArchivo);
+            return Files.readAllBytes(rutaChunk);
         } catch (IOException e) {
-            System.err.println("[Storage] Error al leer el fragmento " + idFragmento + ": " + e.getMessage());
             return null;
         }
     }
 
     /**
-     * Consulta el espacio libre del disco duro (Útil para el Algoritmo de
-     * Distribución).
-     *
-     * @return Espacio libre en bytes.
+     * Retorna el espacio disponible en el disco (en bytes) para saber si podemos recibir más archivos.
      */
     public long obtenerEspacioDisponible() {
+        // Usar Files.getFileStore(this.archivosDir).getUsableSpace() para saber el espacio libre.
         try {
-            // Consulta a nivel de Sistema Operativo el espacio de la partición
-            return Files.getFileStore(directorioAlmacenamiento).getUsableSpace();
+            return Files.getFileStore(this.archivosDir).getUsableSpace();
         } catch (IOException e) {
-            System.err.println("[Storage] Error al consultar espacio disponible.");
-            return 0;
-        }
-    }
-
-    /**
-     * Reconstruye el archivo original uniendo todos sus fragmentos y elimina los
-     * temporales.
-     */
-    public boolean ensamblarArchivo(String nombreOriginal) {
-        Path rutaFinal = directorioAlmacenamiento.resolve(nombreOriginal);
-
-        try (FileOutputStream fos = new FileOutputStream(rutaFinal.toFile())) {
-            int numeroFragmento = 0;
-
-            while (true) {
-                Path rutaFragmento = directorioAlmacenamiento.resolve(nombreOriginal + "_part" + numeroFragmento);
-
-                // Si el fragmento no existe, significa que ya pegamos todos
-                if (!Files.exists(rutaFragmento)) {
-                    break;
-                }
-
-                // Pegar los bytes del fragmento al archivo final
-                Files.copy(rutaFragmento, fos);
-
-                // Borrar el fragmento temporal para limpiar el disco
-                Files.delete(rutaFragmento);
-                numeroFragmento++;
-            }
-
-            System.out.println("[Storage] 📦 Ensamblado completado con éxito: " + nombreOriginal + " (Unió "
-                    + numeroFragmento + " piezas).");
-            return true;
-
-        } catch (IOException e) {
-            System.err.println("[Storage] Error crítico al ensamblar " + nombreOriginal + ": " + e.getMessage());
-            return false;
+            return 0L;
         }
     }
 }

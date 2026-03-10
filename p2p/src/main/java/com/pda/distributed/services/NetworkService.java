@@ -1,5 +1,6 @@
 package com.pda.distributed.services;
 
+import com.google.protobuf.ByteString;
 import com.pda.distributed.core.Nodo;
 // Importaciones de gRPC
 import com.pda.distributed.network.grpc.*;
@@ -10,6 +11,8 @@ import io.grpc.ServerBuilder;
 import io.grpc.ManagedChannel;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -18,7 +21,8 @@ public class NetworkService {
     private final Nodo nodoLocal;
     private QuorumService quorumService;
     private DiscoveryService discoveryService;
-    
+    private StorageCoordinator storageCoordinator;
+
     private Server grpcServer;
     // Mapa para mantener las conexiones abiertas hacia otros nodos (K: "IP:Puerto", V: Canal gRPC)
     private final Map<String, ManagedChannel> activeChannels;
@@ -36,6 +40,10 @@ public class NetworkService {
         this.discoveryService = discoveryService;
     }
 
+    public void setStorageCoordinator(StorageCoordinator storageCoordinator) {
+        this.storageCoordinator = storageCoordinator;
+    }
+
     /**
      * Levanta el servidor gRPC en un puerto disponible.
      * @return El puerto en el que finalmente se levantó el servidor.
@@ -48,7 +56,7 @@ public class NetworkService {
             try {
                 String direccionTemporal = nodoLocal.getIp() + ":" + puertoPrueba;
                 grpcServer = ServerBuilder.forPort(puertoPrueba)
-                        .addService(new NodeServiceGrpcImpl(quorumService, direccionTemporal))
+                        .addService(new NodeServiceGrpcImpl(quorumService, storageCoordinator, direccionTemporal))
                         .build()
                         .start();
 
@@ -171,6 +179,61 @@ public class NetworkService {
             channel.shutdown();
         }
     }
+
+    /**
+         * Retorna una lista con las direcciones "IP:Puerto" de todos los nodos
+         * con los que tenemos un canal de comunicación abierto.
+         */
+        public List<String> getNodosConectados() {
+            // Obtenemos todas las claves (IPs) del mapa de canales activos
+            return new ArrayList<>(activeChannels.keySet());
+        }
+
+        /**
+         * Envía un fragmento de archivo a un nodo específico mediante gRPC.
+         */
+        public boolean enviarFragmento(String targetAddress, String fileId, int chunkIndex, byte[] chunkData, int totalExpected) {
+            try {
+                // 1. Obtener o crear el canal hacia el nodo destino
+                ManagedChannel channel = activeChannels.get(targetAddress);
+                if (channel == null) {
+                    String[] partes = targetAddress.split(":");
+                    channel = ManagedChannelBuilder.forAddress(partes[0], Integer.parseInt(partes[1]))
+                            .usePlaintext()
+                            .build();
+                    activeChannels.put(targetAddress, channel);
+                }
+
+                // 2. Crear el cliente gRPC bloqueante
+                PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(channel);
+
+                // 3. Convertir el byte[] de Java al ByteString que usa Protobuf (Súper importante)
+                ByteString protobufBytes = ByteString.copyFrom(chunkData);
+
+                // 4. Construir el mensaje PeticionSubida
+                PeticionSubida request = PeticionSubida.newBuilder()
+                        .setIdArchivo(fileId)
+                        .setIndiceFragmento(chunkIndex)
+                        .setTotalFragmentos(totalExpected)
+                        .setFragmento(protobufBytes)
+                        .build();
+
+                // 5. Enviar el mensaje por la red y esperar la respuesta
+                RespuestaSubida response = stub.subirFragmento(request);
+
+                if (response.getExito()) {
+                    ConsoleLogger.info("Network", "Fragmento " + chunkIndex + " enviado correctamente a " + targetAddress);
+                    return true;
+                } else {
+                    ConsoleLogger.error("Network", "El nodo " + targetAddress + " rechazó el fragmento " + chunkIndex);
+                    return false;
+                }
+
+            } catch (Exception e) {
+                ConsoleLogger.error("Network", "Fallo al enviar fragmento a " + targetAddress + " (El nodo podría estar caído).");
+                return false;
+            }
+        }
 
     // Getters y setters
     public String getMiDireccion(){

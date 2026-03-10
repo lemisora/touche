@@ -4,7 +4,7 @@ import com.pda.distributed.utils.ConsoleLogger;
 import com.pda.distributed.services.NetworkService;
 import com.pda.distributed.services.QuorumService;
 //import com.pda.distributed.services.StateSyncService;
-//import com.pda.distributed.services.StorageCoordinator;
+import com.pda.distributed.services.StorageCoordinator;
 //import com.pda.distributed.services.FileWatcherService;
 import com.pda.distributed.services.DiscoveryService;
 
@@ -35,10 +35,10 @@ public class Nodo {
      private final DiscoveryService discoveryService;
 
     // Servicios de Almacenamiento
-    // private final StorageCoordinator storageCoordinator;
+    private final StorageCoordinator storageCoordinator;
     // private final FileWatcherService fileWatcherService;
-    // private final StorageManager storageManager;
-    // private final DistributedDirectory distributedDirectory;
+    private final StorageManager storageManager;
+    private final DistributedDirectory distributedDirectory;
 
     // Variables del Anillo
     // private Thread ringWatchdog;
@@ -61,10 +61,18 @@ public class Nodo {
 
         this.networkService.setQuorumService(this.quorumService);
         this.networkService.setDiscoveryService(this.discoveryService);
-        // this.storageCoordinator = new StorageCoordinator();
+
         // this.fileWatcherService = new FileWatcherService();
-        // this.storageManager = new StorageManager();
-        // this.distributedDirectory = new DistributedDirectory();
+        this.storageManager = new StorageManager("archivos");
+        this.storageCoordinator = new StorageCoordinator();
+        this.distributedDirectory = new DistributedDirectory();
+
+        this.storageCoordinator.setStorageManager(this.storageManager);
+        this.storageCoordinator.setDistributedDirectory(this.distributedDirectory);
+        this.storageCoordinator.setNetworkService(this.networkService);
+        this.storageCoordinator.setQuorumService(this.quorumService);
+
+        this.networkService.setStorageCoordinator(this.storageCoordinator);
 
         // Inyectar dependencias de Red
         // this.quorumService.setNetworkService(this.networkService);
@@ -107,6 +115,7 @@ public class Nodo {
 
         // Asignamos el ID al QuorumService
         this.quorumService.setMiNodeId(this.id);
+        this.storageCoordinator.start();
 
         // 2. Lógica de conexión
         if (seedAddress != null && !seedAddress.trim().isEmpty()) {
@@ -190,6 +199,17 @@ public class Nodo {
         }
     }
 
+
+    /**
+     * Método puente para que la consola (App) mande archivos a la cola del coordinador.
+     */
+    public void forzarSubidaManual(String rutaAbsoluta) {
+        if (this.storageCoordinator != null) {
+            this.storageCoordinator.encolarArchivo(rutaAbsoluta);
+        } else {
+            ConsoleLogger.error(this.name, "El StorageCoordinator no está inicializado.");
+        }
+    }
     // Getters y setters
     public String getNodeAddress() {
         return this.nodeAddress;

@@ -95,10 +95,10 @@ public class App implements Callable<Integer> {
                 } else if ("archivos".equalsIgnoreCase(comando)) {
                     // System.out.println(miNodo.getArchivosDistribuidos());
                     System.out.println("Comando 'archivos' en desarrollo (Fase 2).");
-                } else if (comando.toLowerCase().startsWith("subir ")) {
-                    // String rutaArchivo = comando.substring(6).trim();
-                    // miNodo.forzarSubidaManual(rutaArchivo);
-                    System.out.println("Comando 'subir' en desarrollo (Fase 2).");
+                }else if (comando.toLowerCase().startsWith("subir ")) {
+                    String rutaArchivo = comando.substring(6).trim();
+                    System.out.println("Disparando subida manual para: " + rutaArchivo);
+                    miNodo.forzarSubidaManual(rutaArchivo);
                 } else if (!comando.isEmpty()) {
                     System.out.println("Comando no reconocido.");
                 }
