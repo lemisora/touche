@@ -7,7 +7,8 @@ public class FileWatcherServiceTest {
 
 	@Test
 	public void testStartAndStop_NoLanzaExcepcion() {
-		FileWatcherService watcher = new FileWatcherService();
+		String directorioObservado = "archivos_entrada";
+		FileWatcherService watcher = new FileWatcherService(directorioObservado);
 		watcher.start();
 		// Le damos 100ms para arrancar el hilo
 		try { Thread.sleep(100); } catch (InterruptedException e) {}

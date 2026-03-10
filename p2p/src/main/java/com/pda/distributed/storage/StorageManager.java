@@ -16,15 +16,16 @@ public class StorageManager {
     private final Path archivosDir;
     private final Map<String, Integer> chunkCounters;
 
-    public StorageManager(String rutaDirectorio) {
+    public StorageManager(String rutaDirectorioArchivos) {
         // Inicializamos la ruta usando la API moderna NIO de Java
-        this.archivosDir = Paths.get(rutaDirectorio);
+        this.archivosDir = Paths.get(rutaDirectorioArchivos);
+        Path rutaArchivosEntrada = Paths.get(rutaDirectorioArchivos + "_entrada");
         this.chunkCounters = new ConcurrentHashMap<>();
         
-        // TODO: Crear el directorio físicamente si no existe. 
-        // Pista: Usa Files.createDirectories(this.archivosDir); y enciérralo en un try-catch.
+        // Crear el directorio físicamente si no existe.
         try {
             Files.createDirectories(this.archivosDir);
+            Files.createDirectories(rutaArchivosEntrada);
         } catch (IOException e) {
             
         }

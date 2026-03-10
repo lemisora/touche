@@ -1,12 +1,7 @@
 package com.pda.distributed.core;
 
+import com.pda.distributed.services.*;
 import com.pda.distributed.utils.ConsoleLogger;
-import com.pda.distributed.services.NetworkService;
-import com.pda.distributed.services.QuorumService;
-import com.pda.distributed.services.StateSyncService;
-import com.pda.distributed.services.StorageCoordinator;
-//import com.pda.distributed.services.FileWatcherService;
-import com.pda.distributed.services.DiscoveryService;
 
 import com.pda.distributed.storage.DistributedDirectory;
 import com.pda.distributed.storage.StorageManager;
@@ -36,7 +31,7 @@ public class Nodo {
 
     // Servicios de Almacenamiento
     private final StorageCoordinator storageCoordinator;
-    // private final FileWatcherService fileWatcherService;
+    private final FileWatcherService fileWatcherService;
     private final StorageManager storageManager;
     private final DistributedDirectory distributedDirectory;
 
@@ -63,7 +58,6 @@ public class Nodo {
         this.networkService.setQuorumService(this.quorumService);
         this.networkService.setDiscoveryService(this.discoveryService);
 
-        // this.fileWatcherService = new FileWatcherService();
         this.storageManager = new StorageManager("archivos");
         this.storageCoordinator = new StorageCoordinator();
         this.distributedDirectory = new DistributedDirectory();
@@ -81,6 +75,9 @@ public class Nodo {
 
         this.networkService.setStorageCoordinator(this.storageCoordinator);
         this.networkService.setStateSyncService(this.stateSyncService);
+
+        this.fileWatcherService = new FileWatcherService("archivos_entrada");
+        this.fileWatcherService.setStorageCoordinator(this.storageCoordinator);
     }
 
     /**
@@ -121,6 +118,7 @@ public class Nodo {
         }
 
         this.networkService.iniciarHeartbeats();
+        this.fileWatcherService.start();
     }
 
     /** Detener al nodo y sus servicios */
