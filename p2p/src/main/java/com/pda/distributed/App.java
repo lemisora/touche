@@ -6,10 +6,12 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import com.pda.distributed.storage.DistributedDirectory;
 import java.util.concurrent.Callable;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.util.Map;
 import java.util.Enumeration;
 import java.util.Scanner;
 
@@ -19,13 +21,14 @@ public class App implements Callable<Integer> {
     @Option(names = { "-i", "--ip" }, defaultValue = "localhost", description = "IP local de este nodo.")
     private String ip;
 
-    @Option(names = {"-I", "--id"}, defaultValue = "0", description = "ID numérico del Nodo (para desempates Bully).")
+    @Option(names = { "-I", "--id" }, defaultValue = "0", description = "ID numérico del Nodo (para desempates Bully).")
     private int id;
 
     @Option(names = { "-n", "--name" }, defaultValue = "Nodo", description = "Nombre amigable del nodo.")
     private String name;
 
-    @Option(names = { "-s", "--seed" }, description = "IP:PUERTO de un nodo semilla para conectarse directamente (ej. 192.168.1.10:50051).")
+    @Option(names = { "-s",
+            "--seed" }, description = "IP:PUERTO de un nodo semilla para conectarse directamente (ej. 192.168.1.10:50051).")
     private String seedNode;
 
     public static void main(String[] args) {
@@ -63,13 +66,17 @@ public class App implements Callable<Integer> {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
                 miNodo.stop();
-            } catch (InterruptedException ignored) {}
+            } catch (InterruptedException ignored) {
+            }
         }));
 
         // Hilo para la consola interactiva (CLI)
         Thread consolaInteractiva = new Thread(() -> {
             Scanner scanner = new Scanner(System.in);
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException ignored) {
+            }
 
             System.out.println("=================================================");
             System.out.println("  CONSOLA INTERACTIVA DEL NODO: " + finalName);
@@ -90,12 +97,44 @@ public class App implements Callable<Integer> {
                     System.out.println("--- INFO DEL NODO ---");
                     System.out.println("ID: " + miNodo.getId());
                     System.out.println("Dirección: " + miNodo.getNodeAddress());
+                    System.out.println("Rol: " + miNodo.getCurrentRole());
+                    System.out.println("Anillo: " + miNodo.getCurrentRingID());
                     System.out.println("Estado: " + miNodo.getCurrentState());
+
+                    System.out.println("\n--- CONEXIONES ACTIVAS ---");
+                    java.util.List<String> conectados = miNodo.getNodosConectados();
+                    if (conectados.isEmpty()) {
+                        System.out.println("No hay conexiones activas gRPC.");
+                    } else {
+                        for (String conn : conectados) {
+                            System.out.println("- " + conn);
+                        }
+                    }
+
+                    System.out.println("\n--- REGISTRO GLOBAL (QUORUM) ---");
+                    Map<String, com.pda.distributed.core.RingType> registro = miNodo.getNodeRegistry();
+                    if (registro.isEmpty()) {
+                        System.out.println("Registro vacío.");
+                    } else {
+                        for (Map.Entry<String, com.pda.distributed.core.RingType> entry : registro.entrySet()) {
+                            System.out.println("- " + entry.getKey() + " [" + entry.getValue() + "]");
+                        }
+                    }
                     System.out.println("---------------------");
                 } else if ("archivos".equalsIgnoreCase(comando)) {
-                    // System.out.println(miNodo.getArchivosDistribuidos());
-                    System.out.println("Comando 'archivos' en desarrollo (Fase 2).");
-                }else if (comando.toLowerCase().startsWith("subir ")) {
+                    Map<String, DistributedDirectory.FileMetadata> archivos = miNodo.getArchivosDistribuidos();
+                    if (archivos.isEmpty()) {
+                        System.out.println("No hay archivos distribuidos registrados en el sistema.");
+                    } else {
+                        System.out.println("--- ARCHIVOS DISTRIBUIDOS ---");
+                        for (Map.Entry<String, DistributedDirectory.FileMetadata> entry : archivos.entrySet()) {
+                            DistributedDirectory.FileMetadata meta = entry.getValue();
+                            System.out.println("- " + meta.fileName + " (" + meta.sizeBytes + " bytes)");
+                            System.out.println("  Ubicaciones: " + String.join(", ", meta.nodeAddresses));
+                        }
+                        System.out.println("-----------------------------");
+                    }
+                } else if (comando.toLowerCase().startsWith("subir ")) {
                     String rutaArchivo = comando.substring(6).trim();
                     System.out.println("Disparando subida manual para: " + rutaArchivo);
                     miNodo.forzarSubidaManual(rutaArchivo);
@@ -119,7 +158,8 @@ public class App implements Callable<Integer> {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 NetworkInterface iface = interfaces.nextElement();
-                if (iface.isLoopback() || !iface.isUp() || iface.isVirtual()) continue;
+                if (iface.isLoopback() || !iface.isUp() || iface.isVirtual())
+                    continue;
 
                 Enumeration<InetAddress> addresses = iface.getInetAddresses();
                 while (addresses.hasMoreElements()) {
@@ -134,7 +174,8 @@ public class App implements Callable<Integer> {
                     }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return fallbackIp;
     }
 }

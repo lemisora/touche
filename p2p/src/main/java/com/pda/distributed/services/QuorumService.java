@@ -10,10 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class QuorumService {
 
     private final NetworkService networkService;
-    
+
     // Límite estático de líderes
     private final int MAX_LEADERS_RING_A = 2;
-    
+
     // Registro global de nodos (K: "IP:Puerto", V: Tipo de Anillo)
     private final Map<String, RingType> nodeRegistry;
 
@@ -29,8 +29,13 @@ public class QuorumService {
         this.miNodeId = id;
     }
 
+    public Map<String, RingType> getNodeRegistry() {
+        return this.nodeRegistry;
+    }
+
     /**
-     * Registra un nodo directamente (usado por el propio nodo cuando nace como Génesis).
+     * Registra un nodo directamente (usado por el propio nodo cuando nace como
+     * Génesis).
      */
     public void registrarNodo(String nodeAddress, RingType ringType) {
         // Añadir el nodeAddress y ringType al nodeRegistry.
@@ -41,6 +46,7 @@ public class QuorumService {
 
     /**
      * Evalúa la petición de un nodo nuevo que quiere unirse a la red.
+     * 
      * @return El nombre del anillo asignado ("RING_A" o "RING_B").
      */
     public String evaluarIngresoNuevoNodo(String nodeAddress, int nodeId) {
@@ -60,15 +66,18 @@ public class QuorumService {
     }
 
     /**
-     * Algoritmo Bully: Evalúa si le damos nuestro voto a un candidato que quiere ser líder.
-     * Regla básica del Bully: Solo votamos "Sí" si el ID del candidato es MAYOR que el nuestro.
+     * Algoritmo Bully: Evalúa si le damos nuestro voto a un candidato que quiere
+     * ser líder.
+     * Regla básica del Bully: Solo votamos "Sí" si el ID del candidato es MAYOR que
+     * el nuestro.
      */
     public boolean evaluarVotoBully(int candidatoId) {
-	    return candidatoId > this.miNodeId;
+        return candidatoId > this.miNodeId;
     }
 
     /**
-     * Inicia el proceso de elección para ver si este nodo se convierte en el líder principal.
+     * Inicia el proceso de elección para ver si este nodo se convierte en el líder
+     * principal.
      */
     public void executeBullyElection() {
         ConsoleLogger.info("Quorum", "Iniciando elección Bully. Mi ID: " + miNodeId);
@@ -87,7 +96,8 @@ public class QuorumService {
 
         // Calculamos la mayoría (la mitad más uno)
         int mayoriaNecesaria = (direccionesLideres.size() / 2) + 1;
-        ConsoleLogger.info("Quorum", "Votos obtenidos: " + votosPositivosRecibidos + " de " + direccionesLideres.size());
+        ConsoleLogger.info("Quorum",
+                "Votos obtenidos: " + votosPositivosRecibidos + " de " + direccionesLideres.size());
 
         // Si la mayoría acepta, nos proclamamos líder.
         if (votosPositivosRecibidos >= mayoriaNecesaria) {
@@ -100,7 +110,8 @@ public class QuorumService {
     }
 
     /**
-     * Propone una acción (ej. borrar un archivo, cambiar de líder) y espera mayoría.
+     * Propone una acción (ej. borrar un archivo, cambiar de líder) y espera
+     * mayoría.
      */
     public boolean proposeAction(String action) {
         ConsoleLogger.info("Quorum", "Proponiendo acción a la red: " + action);
@@ -120,7 +131,8 @@ public class QuorumService {
 
         // Calculamos la mayoría (la mitad más uno)
         int mayoriaNecesaria = (direccionesLideres.size() / 2) + 1;
-        ConsoleLogger.info("Quorum", "Votos obtenidos: " + votosPositivosRecibidos + " de " + direccionesLideres.size());
+        ConsoleLogger.info("Quorum",
+                "Votos obtenidos: " + votosPositivosRecibidos + " de " + direccionesLideres.size());
 
         return votosPositivosRecibidos >= mayoriaNecesaria;
     }
