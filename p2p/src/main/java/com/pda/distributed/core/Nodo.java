@@ -3,7 +3,7 @@ package com.pda.distributed.core;
 import com.pda.distributed.utils.ConsoleLogger;
 import com.pda.distributed.services.NetworkService;
 import com.pda.distributed.services.QuorumService;
-//import com.pda.distributed.services.StateSyncService;
+import com.pda.distributed.services.StateSyncService;
 import com.pda.distributed.services.StorageCoordinator;
 //import com.pda.distributed.services.FileWatcherService;
 import com.pda.distributed.services.DiscoveryService;
@@ -31,8 +31,8 @@ public class Nodo {
     // Servicios de Red y Consenso
     private final NetworkService networkService;
     private final QuorumService quorumService;
-    // private final StateSyncService stateSyncService;
-     private final DiscoveryService discoveryService;
+    private final StateSyncService stateSyncService;
+    private final DiscoveryService discoveryService;
 
     // Servicios de Almacenamiento
     private final StorageCoordinator storageCoordinator;
@@ -58,6 +58,7 @@ public class Nodo {
         this.networkService = new NetworkService(this);
         this.quorumService = new QuorumService(this.networkService);
         this.discoveryService = new DiscoveryService(this.networkService);
+        this.stateSyncService = new StateSyncService(this.networkService);
 
         this.networkService.setQuorumService(this.quorumService);
         this.networkService.setDiscoveryService(this.discoveryService);
@@ -71,8 +72,12 @@ public class Nodo {
         this.storageCoordinator.setDistributedDirectory(this.distributedDirectory);
         this.storageCoordinator.setNetworkService(this.networkService);
         this.storageCoordinator.setQuorumService(this.quorumService);
+        this.storageCoordinator.setStateSyncService(this.stateSyncService);
+
+        this.stateSyncService.setDistributedDirectory(this.distributedDirectory);
 
         this.networkService.setStorageCoordinator(this.storageCoordinator);
+        this.networkService.setStateSyncService(this.stateSyncService);
 
         // Inyectar dependencias de Red
         // this.quorumService.setNetworkService(this.networkService);
@@ -90,18 +95,21 @@ public class Nodo {
         // this.fileWatcherService.setStorageCoordinator(this.storageCoordinator);
     }
 
-    /** Iniciar el nodo, en caso de no existir una dirección de semilla
-     * (para ejecución en redes locales) */
-    public void start(){
+    /**
+     * Iniciar el nodo, en caso de no existir una dirección de semilla
+     * (para ejecución en redes locales)
+     */
+    public void start() {
         ConsoleLogger.info(this.name, "-- Iniciando el Nodo y sus servicios... --");
-        
+
     }
-    
-    /** Iniciar el nodo con una dirección de semilla, en caso de existir 
-    * 
-    * @param seedAddress Dirección de semilla para iniciar el nodo
-    */
-    public void start(String seedAddress) throws IOException{
+
+    /**
+     * Iniciar el nodo con una dirección de semilla, en caso de existir
+     *
+     * @param seedAddress Dirección de semilla para iniciar el nodo
+     */
+    public void start(String seedAddress) throws IOException {
         if (seedAddress != null && !seedAddress.trim().isEmpty()) {
             ConsoleLogger.info(this.name, "-- Iniciando conectando a semilla: " + seedAddress + " --");
         } else {
@@ -124,10 +132,9 @@ public class Nodo {
             esperarDescubrimientoONacer();
         }
     }
-    
-    
+
     /** Detener al nodo y sus servicios */
-    public void stop() throws InterruptedException{
+    public void stop() throws InterruptedException {
         ConsoleLogger.info(this.name, "Deteniendo el nodo y sus servicios...");
         if (this.networkService != null) {
             networkService.stop();
@@ -137,9 +144,11 @@ public class Nodo {
     private void esperarDescubrimientoONacer() {
         ConsoleLogger.info(this.name, "Sin semilla. Escuchando UDP por 4 segundos...");
         try {
-            // Dormimos el hilo principal para darle tiempo al DiscoveryService de escuchar algo
+            // Dormimos el hilo principal para darle tiempo al DiscoveryService de escuchar
+            // algo
             Thread.sleep(4000);
-        } catch (InterruptedException ignored) {}
+        } catch (InterruptedException ignored) {
+        }
 
         // Despertamos. ¿El Discovery logró conectarnos?
         if (this.currentState == NodeState.BLOCKED) {
@@ -178,7 +187,8 @@ public class Nodo {
     }
 
     /**
-     * Llamado por NetworkService/QuorumService cuando el líder semilla responde al 'JoinRequest'
+     * Llamado por NetworkService/QuorumService cuando el líder semilla responde al
+     * 'JoinRequest'
      */
     public void actualizarEstadoDesdeSemilla(String anilloAsignadoStr) {
         try {
@@ -199,9 +209,9 @@ public class Nodo {
         }
     }
 
-
     /**
-     * Método puente para que la consola (App) mande archivos a la cola del coordinador.
+     * Método puente para que la consola (App) mande archivos a la cola del
+     * coordinador.
      */
     public void forzarSubidaManual(String rutaAbsoluta) {
         if (this.storageCoordinator != null) {
@@ -210,6 +220,14 @@ public class Nodo {
             ConsoleLogger.error(this.name, "El StorageCoordinator no está inicializado.");
         }
     }
+
+    public Map<String, DistributedDirectory.FileMetadata> getArchivosDistribuidos() {
+        if (this.distributedDirectory != null) {
+            return this.distributedDirectory.getGlobalFileMap();
+        }
+        return Collections.emptyMap();
+    }
+
     // Getters y setters
     public String getNodeAddress() {
         return this.nodeAddress;
@@ -221,6 +239,22 @@ public class Nodo {
 
     public NodeState getCurrentState() {
         return currentState;
+    }
+
+    public NodeRole getCurrentRole() {
+        return currentRole;
+    }
+
+    public RingType getCurrentRingID() {
+        return currentRingID;
+    }
+
+    public List<String> getNodosConectados() {
+        return networkService != null ? networkService.getNodosConectados() : Collections.emptyList();
+    }
+
+    public Map<String, RingType> getNodeRegistry() {
+        return quorumService != null ? quorumService.getNodeRegistry() : Collections.emptyMap();
     }
 
     public String getIp() {

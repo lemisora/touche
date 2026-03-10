@@ -30,12 +30,18 @@ public class DistributedDirectory {
     public List<String> getFileLocation(String fileName) {
         // Buscar en globalFileMap el archivo por su fileName.
         FileMetadata fileMetadata = globalFileMap.get(fileName);
-        // Si existe, retornar su lista de nodeAddresses. Si no, retornar una lista vacía.
+        // Si existe, retornar su lista de nodeAddresses. Si no, retornar una lista
+        // vacía.
         return fileMetadata != null ? fileMetadata.nodeAddresses : new ArrayList<>();
     }
 
     public void updateMap(FileMetadata fileData) {
-        // Insertar o actualizar el fileData en globalFileMap usando su fileName como clave.
+        // Insertar o actualizar el fileData en globalFileMap usando su fileName como
+        // clave.
         globalFileMap.put(fileData.fileName, fileData);
+    }
+
+    public Map<String, FileMetadata> getGlobalFileMap() {
+        return this.globalFileMap;
     }
 }
