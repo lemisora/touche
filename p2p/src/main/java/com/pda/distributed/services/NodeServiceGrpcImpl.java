@@ -32,32 +32,37 @@ public class NodeServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
         // TODO: 1. Extraer request.getDireccionNodo() y request.getIdNodo().
         // TODO: 2. Llamar a quorumManager.evaluarIngresoNuevoNodo(...) y guardar el
         // resultado.
-        String anilloAsignado = quorumService.evaluarIngresoNuevoNodo(
-                request.getDireccionNodo(),
-                request.getIdNodo());
-        // TODO: 3. Construir el JoinResponse con el anillo asignado.
-        JoinResponse response = JoinResponse.newBuilder()
+        
+        try {
+           String direccionNuevoNodo = request.getDireccionNodo();
+           int idNuevoNodo = request.getIdNodo();
+           
+           String anilloAsignado = quorumService.evaluarIngresoNuevoNodo(direccionNuevoNodo, idNuevoNodo);
+           if (this.networkService != null) {
+               this.networkService.registrarCanalSilencioso(direccionNuevoNodo);
+               if (this.stateSyncService != null) {
+                   this.stateSyncService.broadcastQuorum(quorumService.getNodeRegistry());
+                   this.stateSyncService.broadcastMapUpdate();
+               }
+           }
+           
+           // TODO: 3. Construir el JoinResponse con el anillo asignado.
+           JoinResponse response = JoinResponse.newBuilder()
                 .setAnilloAsignado(anilloAsignado)
                 .setAceptado(true)
                 .setMensaje("Aceptado")
                 .build();
-        // TODO: 4. Enviar la respuesta con responseObserver.onNext(...) y
-        // onCompleted().
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
-
-        // Aseguramos que nuestro NetworkService registre este nuevo canal
-        // para que pueda recibir los broadcasts de estado.
-        if (networkService != null) {
-            networkService.registrarCanal(request.getDireccionNodo());
+                
+            
+            // TODO: 4. Enviar la respuesta con responseObserver.onNext(...) y
+            // onCompleted().
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+            ConsoleLogger.info("gRPC", "Nodo " + idNuevoNodo + " aceptado y asignado a " + anilloAsignado);
+        } catch (Exception e) {
+            responseObserver.onError(e);
         }
-
-        // Al aceptar a un nuevo nodo, enviamos una actualización del directorio a la
-        // red
-        // para que el nodo recién integrado conozca el estado de los archivos.
-        if (stateSyncService != null) {
-            stateSyncService.broadcastMapUpdate();
-        }
+        
     }
 
     @Override
