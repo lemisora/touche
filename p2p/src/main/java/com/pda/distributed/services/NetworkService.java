@@ -146,7 +146,7 @@ public class NetworkService {
             // Usamos .withDeadlineAfter() para que si el nodo se apagó a la fuerza,
             // no nos quedemos esperando infinitamente una respuesta.
             PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(channel)
-                    .withDeadlineAfter(2, TimeUnit.SECONDS);
+                    .withDeadlineAfter(10, TimeUnit.SECONDS);
 
             PingRequest request = PingRequest.newBuilder()
                     .setDireccionNodo(this.getMiDireccion())
@@ -178,7 +178,7 @@ public class NetworkService {
             }
 
             // Prevenir la esquizofrenia de red: No conectarnos a nosotros mismos
-            if (seedAddress.equals(miDireccion) || seedAddress.endsWith(":" + nodoLocal.getPort())) {
+            if (seedAddress.equals(miDireccion)) {
                 return false; // Nos ignoramos silenciosamente
             }
 

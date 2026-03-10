@@ -78,6 +78,16 @@ public class StateSyncService {
                     quorumService.setNodeRegistry(nuevoRegistro);
                 }
 
+                // Revisamos la lista de nodos que el líder nos mandó.
+                for (String ipNodoEnQuorum : nuevoRegistro.keySet()) {
+                    // Si el nodo no somos nosotros mismos, abrimos un canal hacia él.
+                    if (!ipNodoEnQuorum.equals(this.nodoLocal.getNodeAddress())) {
+                        // registrarCanalSilencioso ya tiene un `if(!activeChannels.containsKey)` interno, 
+                        // así que es súper seguro llamarlo aquí sin crear canales duplicados.
+                        networkService.registrarCanalSilencioso(ipNodoEnQuorum);
+                    }
+                }
+                
                 // Resolver el problema del Cerebro Dividido (Split-Brain)
                 String miDireccion = networkService.getMiDireccion();
                 if (nuevoRegistro.containsKey(miDireccion) && nodoLocal != null) {
