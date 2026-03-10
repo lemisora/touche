@@ -275,4 +275,8 @@ public class Nodo {
     public int getPort() {
         return this.port;
     }
+
+    public StorageCoordinator getStorageCoordinator () {
+        return this.storageCoordinator;
+    }
 }

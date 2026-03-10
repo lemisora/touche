@@ -84,6 +84,7 @@ public class App implements Callable<Integer> {
             System.out.println("  - 'info' -> Ver estado del nodo y conexiones.");
             System.out.println("  - 'archivos' -> Ver lista de archivos distribuidos.");
             System.out.println("  - 'subir <ruta>' -> Distribuir un archivo local.");
+            System.out.println("  - 'balancear' -> Ver lista de archivos distribuidos.");
             System.out.println("  - 'salir' -> Apagar el nodo.");
             System.out.println("=================================================");
 
@@ -100,6 +101,17 @@ public class App implements Callable<Integer> {
                     System.out.println("Rol: " + miNodo.getCurrentRole());
                     System.out.println("Anillo: " + miNodo.getCurrentRingID());
                     System.out.println("Estado: " + miNodo.getCurrentState());
+
+                    // Mostrar el espacio en disco
+                    if (miNodo.getStorageCoordinator() != null &&
+                            miNodo.getStorageCoordinator()
+                                    .getStorageManager() != null) {
+                        long espacioLibreBytes = miNodo.getStorageCoordinator()
+                                .getStorageManager()
+                                .obtenerEspacioDisponible();
+                        long espacioMB = espacioLibreBytes / (1024 * 1024);
+                        System.out.println("Espacio Libre: " + espacioLibreBytes + " Bytes (" + espacioMB + " MB)");
+                    }
 
                     System.out.println("\n--- CONEXIONES ACTIVAS ---");
                     java.util.List<String> conectados = miNodo.getNodosConectados();
@@ -138,6 +150,14 @@ public class App implements Callable<Integer> {
                     String rutaArchivo = comando.substring(6).trim();
                     System.out.println("Disparando subida manual para: " + rutaArchivo);
                     miNodo.forzarSubidaManual(rutaArchivo);
+                } else if (comando.equalsIgnoreCase("balancear")) {
+                    // Disparador manual para pruebas
+                    if (miNodo.getStorageCoordinator() != null) {
+                        System.out.println("Disparando algoritmo de balanceo manualmente...");
+                        miNodo.getStorageCoordinator().balancear();
+                    } else {
+                        System.out.println("El StorageCoordinator no está inicializado.");
+                    }
                 } else if (!comando.isEmpty()) {
                     System.out.println("Comando no reconocido.");
                 }
