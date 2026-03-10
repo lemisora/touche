@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class QuorumService {
 
     private final NetworkService networkService;
+    private StateSyncService stateSyncService;
 
     // Límite estático de líderes
     private final int MAX_LEADERS_RING_A = 2;
@@ -29,6 +30,15 @@ public class QuorumService {
         this.miNodeId = id;
     }
 
+    public void setStateSyncService(StateSyncService stateSyncService) {
+        this.stateSyncService = stateSyncService;
+    }
+
+    public void setNodeRegistry(Map<String, RingType> nuevoRegistro) {
+        this.nodeRegistry.clear();
+        this.nodeRegistry.putAll(nuevoRegistro);
+    }
+
     public Map<String, RingType> getNodeRegistry() {
         return this.nodeRegistry;
     }
@@ -42,6 +52,38 @@ public class QuorumService {
         nodeRegistry.put(nodeAddress, ringType);
         // Imprimir en consola que se registró un nuevo nodo.
         ConsoleLogger.info("Quorum", "Se registró un nuevo nodo: " + nodeAddress);
+
+        // Avisar a toda la red que el mapa de nodos cambió
+        if (stateSyncService != null) {
+            stateSyncService.broadcastQuorum(this.nodeRegistry);
+        }
+    }
+
+    /**
+     * Remueve un nodo que dejó de responder a los latidos.
+     */
+    public void removerNodoCaido(String nodeAddress) {
+        // Obtenemos qué anillo tenía antes de borrarlo
+        RingType anilloDelCaido = nodeRegistry.remove(nodeAddress);
+
+        if (anilloDelCaido != null) {
+            ConsoleLogger.info("Quorum", "Se ha borrado del registro al nodo: " + nodeAddress + " (" + anilloDelCaido + ")");
+
+            // Si se murió un líder...
+            if (anilloDelCaido == RingType.RING_A) {
+                ConsoleLogger.advertencia("Quorum", "¡Atención! Un líder del RING_A ha caído.");
+
+                // Si nosotros somos trabajadores (RING_B), o si queremos re-elegir líderes,
+                // disparamos el algoritmo Bully para reorganizar la red.
+                executeBullyElection();
+            }
+
+            // TODO (Futuro): Avisarle al StateSyncService para que todos actualicen su mapa.
+            // Avisar a toda la red que el mapa de nodos cambió
+            if (stateSyncService != null) {
+                stateSyncService.broadcastQuorum(this.nodeRegistry);
+            }
+        }
     }
 
     /**
@@ -58,9 +100,17 @@ public class QuorumService {
 
         if (numIntegrantesAnilloA < MAX_LEADERS_RING_A) {
             nodeRegistry.put(nodeAddress, RingType.RING_A);
+            // Avisar a toda la red que el mapa de nodos cambió
+            if (stateSyncService != null) {
+                stateSyncService.broadcastQuorum(this.nodeRegistry);
+            }
             return "RING_A";
         } else {
             nodeRegistry.put(nodeAddress, RingType.RING_B);
+            // Avisar a toda la red que el mapa de nodos cambió
+            if (stateSyncService != null) {
+                stateSyncService.broadcastQuorum(this.nodeRegistry);
+            }
             return "RING_B";
         }
     }

@@ -69,6 +69,8 @@ public class DiscoveryService {
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                     socket.receive(packet); // Se bloquea esperando mensajes
 
+
+
                     String mensaje = new String(packet.getData(), 0, packet.getLength()).trim();
 
                     if (mensaje.startsWith(MAGIC_WORD)) {
@@ -140,21 +142,35 @@ public class DiscoveryService {
             // Ejemplo de mensaje: PDA_NODE_ANNOUNCEMENT:50051
             String puertoString = mensaje.substring(MAGIC_WORD.length()).trim();
 
+            // Si el grito vino por loopback, lo traducimos a nuestra IP real de la red
+            if (ipOrigen.equals("127.0.0.1") || ipOrigen.equals("localhost")) {
+                // Asumo que tienes un método getMiIp(), si no, usa el que obtenga "192.168.x.x"
+                ipOrigen = networkService.getMiDireccion().split(":")[0];
+            }
+
             // Construimos la clave unificada "IP:Puerto"
             String direccionDescubierta = ipOrigen + ":" + puertoString;
             String miDireccion = networkService.getMiDireccion();
 
-            // 1. Evitar conectarnos a nosotros mismos
+            // Evitar conectarnos a nosotros mismos
             if (direccionDescubierta.equals(miDireccion)) {
                 return;
             }
 
-            // 2. Evitar reconectar si ya estamos conectados a este nodo
+            // Evitar reconectar si ya estamos conectados a este nodo
             if (!networkService.estaConectado(direccionDescubierta)) {
-                ConsoleLogger.info("Discovery", "¡Grito UDP escuchado! Nodo local descubierto en: " + direccionDescubierta);
+                ConsoleLogger.info("Discovery", "¡Nodo nuevo descubierto! IP: " + direccionDescubierta);
 
-                // 3. ¡Magia! Intentamos unirnos usando este nodo recién descubierto como semilla
-                networkService.joinNetwork(direccionDescubierta, miDireccion, networkService.getMiId());
+                // Le preguntamos al Nodo (a través del NetworkService) en qué estado está.
+                if (networkService.getNodoLocal().getCurrentState() == com.pda.distributed.core.NodeState.BLOCKED) {
+                    // Somos nuevos y estamos buscando red. ¡Pedimos unirnos!
+                    networkService.joinNetwork(direccionDescubierta, miDireccion, networkService.getMiId());
+                } else {
+                    // Ya somos parte de una red (READY). No pedimos unirnos.
+                    // Solo guardamos su canal para que cuando él nos pida unirse a nosotros,
+                    // ya tengamos el cable listo para responderle y mandarle latidos.
+                    networkService.registrarCanalSilencioso(direccionDescubierta);
+                }
             }
 
         } catch (Exception e) {

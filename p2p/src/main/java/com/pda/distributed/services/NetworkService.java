@@ -10,6 +10,12 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.ManagedChannel;
 
+import com.pda.distributed.network.grpc.PingRequest;
+import com.pda.distributed.network.grpc.PingResponse;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,37 +23,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class NetworkService {
-
-    public void enviarEstado(String direccionDestino, String jsonEstado) {
-        try {
-            io.grpc.ManagedChannel channel = this.activeChannels.get(direccionDestino);
-            if (channel == null) {
-                com.pda.distributed.utils.ConsoleLogger.advertencia("Network",
-                        "Canal no encontrado para " + direccionDestino);
-                return;
-            }
-
-            com.pda.distributed.network.grpc.PdaServiceGrpc.PdaServiceBlockingStub stub = com.pda.distributed.network.grpc.PdaServiceGrpc
-                    .newBlockingStub(channel);
-
-            com.pda.distributed.network.grpc.PeticionEstado request = com.pda.distributed.network.grpc.PeticionEstado
-                    .newBuilder()
-                    .setDireccionOrigen("NetworkService")
-                    .setDatosEstado(jsonEstado)
-                    .build();
-
-            stub.sincronizarEstado(request);
-        } catch (Exception e) {
-            com.pda.distributed.utils.ConsoleLogger.error("Network",
-                    "Error al enviar estado a " + direccionDestino + ": " + e.getMessage());
-        }
-    }
-
     private final Nodo nodoLocal;
     private QuorumService quorumService;
     private DiscoveryService discoveryService;
     private StorageCoordinator storageCoordinator;
     private StateSyncService stateSyncService;
+
+    private ScheduledExecutorService heartbeatTimer;
 
     private Server grpcServer;
     // Mapa para mantener las conexiones abiertas hacia otros nodos (K: "IP:Puerto",
@@ -112,6 +94,75 @@ public class NetworkService {
     }
 
     /**
+     * Enciende el motor de latidos. Se ejecutará en segundo plano cada 5 segundos.
+     */
+    public void iniciarHeartbeats() {
+        if (heartbeatTimer == null) {
+            heartbeatTimer = Executors.newSingleThreadScheduledExecutor();
+            // Inicia en 5 segs, y se repite cada 5 segs
+            heartbeatTimer.scheduleAtFixedRate(this::revisarSaludNodos, 5, 5, TimeUnit.SECONDS);
+            ConsoleLogger.info("Network", "Servicio de Heartbeats (Latidos) iniciado.");
+        }
+    }
+
+    /**
+     * Revisa todos los canales activos. Si alguno no responde, lo elimina.
+     */
+    private void revisarSaludNodos() {
+        List<String> nodosCaidos = new ArrayList<>();
+
+        // Preguntamos a todos si están vivos
+        for (String targetAddress : activeChannels.keySet()) {
+            boolean isAlive = enviarPing(targetAddress);
+            if (!isAlive) {
+                nodosCaidos.add(targetAddress);
+            }
+        }
+
+        // Limpiamos a los caídos
+        for (String caido : nodosCaidos) {
+            ConsoleLogger.advertencia("Network", "¡Nodo desconectado o muerto detectado!: " + caido);
+
+            // Cerramos la conexión de red
+            ManagedChannel canalMuerto = activeChannels.remove(caido);
+            if (canalMuerto != null) {
+                canalMuerto.shutdown();
+            }
+
+            // Le avisamos al QuorumService para que lo borre del mapa y decida qué hacer
+            if (quorumService != null) {
+                quorumService.removerNodoCaido(caido);
+            }
+        }
+    }
+
+    /**
+     * Envía un ping gRPC rápido. Tiene un "timeout" de 2 segundos para no quedarse colgado.
+     */
+    private boolean enviarPing(String targetAddress) {
+        try {
+            ManagedChannel channel = activeChannels.get(targetAddress);
+
+            // Usamos .withDeadlineAfter() para que si el nodo se apagó a la fuerza,
+            // no nos quedemos esperando infinitamente una respuesta.
+            PdaServiceGrpc.PdaServiceBlockingStub stub = PdaServiceGrpc.newBlockingStub(channel)
+                    .withDeadlineAfter(2, TimeUnit.SECONDS);
+
+            PingRequest request = PingRequest.newBuilder()
+                    .setDireccionNodo(this.getMiDireccion())
+                    .setIdNodo(this.getMiId())
+                    .build();
+
+            PingResponse response = stub.heartbeat(request);
+            return response.getExito();
+
+        } catch (Exception e) {
+            // Cualquier error (Timeout, conexión rechazada, etc) significa que el nodo murió
+            return false;
+        }
+    }
+
+    /**
      * Actúa como cliente gRPC para pedir unirse a un nodo semilla.
      */
     public boolean joinNetwork(String seedAddress, String miDireccion, int miId) {
@@ -120,6 +171,21 @@ public class NetworkService {
             String[] ip_parts = seedAddress.split(":");
             String ip = ip_parts[0];
             int port = Integer.parseInt(ip_parts[1]);
+
+            // Normalizar la IP: Si alguien nos manda un 127.0.0.1, lo cambiamos a nuestra IP real
+            if (seedAddress.startsWith("127.0.0.1:")) {
+                seedAddress = seedAddress.replace("127.0.0.1", nodoLocal.getIp());
+            }
+
+            // Prevenir la esquizofrenia de red: No conectarnos a nosotros mismos
+            if (seedAddress.equals(miDireccion) || seedAddress.endsWith(":" + nodoLocal.getPort())) {
+                return false; // Nos ignoramos silenciosamente
+            }
+
+            // Prevenir duplicados: Si ya tenemos esta dirección normalizada, no hacemos nada
+            if (activeChannels.containsKey(seedAddress)) {
+                return true;
+            }
 
             // .usePlaintext() para que no intente usar HTTPS/SSL en las pruebas locales.
             ManagedChannel channel = ManagedChannelBuilder.forAddress(ip, port)
@@ -166,6 +232,31 @@ public class NetworkService {
             // excepción aquí.
             ConsoleLogger.error("Network", "No se pudo conectar al nodo semilla " + seedAddress + ". ¿Está encendido?");
             return false;
+        }
+    }
+
+    public void enviarEstado(String direccionDestino, String jsonEstado) {
+        try {
+            io.grpc.ManagedChannel channel = this.activeChannels.get(direccionDestino);
+            if (channel == null) {
+                com.pda.distributed.utils.ConsoleLogger.advertencia("Network",
+                        "Canal no encontrado para " + direccionDestino);
+                return;
+            }
+
+            com.pda.distributed.network.grpc.PdaServiceGrpc.PdaServiceBlockingStub stub = com.pda.distributed.network.grpc.PdaServiceGrpc
+                    .newBlockingStub(channel);
+
+            com.pda.distributed.network.grpc.PeticionEstado request = com.pda.distributed.network.grpc.PeticionEstado
+                    .newBuilder()
+                    .setDireccionOrigen("NetworkService")
+                    .setDatosEstado(jsonEstado)
+                    .build();
+
+            stub.sincronizarEstado(request);
+        } catch (Exception e) {
+            com.pda.distributed.utils.ConsoleLogger.error("Network",
+                    "Error al enviar estado a " + direccionDestino + ": " + e.getMessage());
         }
     }
 
@@ -229,11 +320,29 @@ public class NetworkService {
         }
     }
 
+    /**
+     * Registra un canal de comunicación con un nodo sin pedirle unirse a su red.
+     * Útil cuando nosotros ya somos parte de una red y descubrimos a un recién llegado.
+     */
+    public void registrarCanalSilencioso(String targetAddress) {
+        if (!activeChannels.containsKey(targetAddress)) {
+            String[] partes = targetAddress.split(":");
+            io.grpc.ManagedChannel channel = io.grpc.ManagedChannelBuilder.forAddress(partes[0], Integer.parseInt(partes[1]))
+                    .usePlaintext()
+                    .build();
+            activeChannels.put(targetAddress, channel);
+            ConsoleLogger.info("Network", "Canal de comunicación abierto con: " + targetAddress);
+        }
+    }
+
     public void stop() throws InterruptedException {
         if (this.grpcServer != null) {
             grpcServer.shutdown();
         }
 
+        if (heartbeatTimer != null) {
+            heartbeatTimer.shutdownNow();
+        }
         for (ManagedChannel channel : activeChannels.values()) {
             channel.shutdown();
         }
@@ -308,5 +417,9 @@ public class NetworkService {
 
     public boolean estaConectado(String directorioDestino) {
         return activeChannels.containsKey(directorioDestino);
+    }
+
+    public Nodo getNodoLocal() {
+        return nodoLocal;
     }
 }

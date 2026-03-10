@@ -75,24 +75,12 @@ public class Nodo {
         this.storageCoordinator.setStateSyncService(this.stateSyncService);
 
         this.stateSyncService.setDistributedDirectory(this.distributedDirectory);
+        this.stateSyncService.setQuorumService(this.quorumService);
+        this.stateSyncService.setNodoLocal(this);
+        this.quorumService.setStateSyncService(this.stateSyncService);
 
         this.networkService.setStorageCoordinator(this.storageCoordinator);
         this.networkService.setStateSyncService(this.stateSyncService);
-
-        // Inyectar dependencias de Red
-        // this.quorumService.setNetworkService(this.networkService);
-        // this.quorumService.setOnElectionWon(this::promoteToLeader);
-        // this.networkService.setQuorumService(this.quorumService);
-        // this.stateSyncService.setNetworkService(this.networkService);
-        // this.networkService.setStateSyncService(this.stateSyncService);
-        // this.discoveryService.setNetworkService(this.networkService);
-
-        // Dependencias de Storage
-        // this.storageCoordinator.setNetworkService(this.networkService);
-        // this.storageCoordinator.setQuorumService(this.quorumService);
-        // this.storageCoordinator.setStorageManager(this.storageManager);
-        // this.storageCoordinator.setDistributedDirectory(this.distributedDirectory);
-        // this.fileWatcherService.setStorageCoordinator(this.storageCoordinator);
     }
 
     /**
@@ -131,6 +119,8 @@ public class Nodo {
         } else {
             esperarDescubrimientoONacer();
         }
+
+        this.networkService.iniciarHeartbeats();
     }
 
     /** Detener al nodo y sus servicios */
@@ -228,6 +218,25 @@ public class Nodo {
         return Collections.emptyMap();
     }
 
+    /**
+     * Forzar la actualización del rol del nodo según el consenso de la red.
+     */
+    public void forzarCambioDeAnillo(RingType nuevoAnillo) {
+        if (this.currentRingID != nuevoAnillo) {
+            ConsoleLogger.advertencia(this.name, "Degradación/Ascenso por red. Pasando de " + this.currentRingID + " a " + nuevoAnillo);
+
+            this.currentRingID = nuevoAnillo;
+
+            if (nuevoAnillo == RingType.RING_A) {
+                this.currentRole = NodeRole.LEADER;
+                ConsoleLogger.setRolConfigurado("LIDER");
+            } else {
+                this.currentRole = NodeRole.WORKER;
+                ConsoleLogger.setRolConfigurado("WORKER");
+            }
+        }
+    }
+
     // Getters y setters
     public String getNodeAddress() {
         return this.nodeAddress;
@@ -263,5 +272,9 @@ public class Nodo {
 
     public String getName() {
         return name;
+    }
+
+    public int getPort() {
+        return this.port;
     }
 }
