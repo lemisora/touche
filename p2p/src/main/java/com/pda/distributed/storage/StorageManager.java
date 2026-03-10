@@ -137,4 +137,9 @@ public class StorageManager {
             return 0L;
         }
     }
+    
+    /** Devuelve la ruta física en la que se encuentran los archivos */
+    public Path getArchivosDir(){
+        return this.archivosDir;
+    }
 }

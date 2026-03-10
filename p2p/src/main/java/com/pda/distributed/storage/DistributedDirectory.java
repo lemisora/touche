@@ -18,6 +18,11 @@ public class DistributedDirectory {
             this.sizeBytes = sizeBytes;
             this.nodeAddresses = new ArrayList<>();
         }
+        
+        public String getFileName() {
+            return fileName;
+        }
+        
     }
 
     // El catálogo global del sistema (K: Nombre del archivo, V: Metadatos)
@@ -44,4 +49,5 @@ public class DistributedDirectory {
     public Map<String, FileMetadata> getGlobalFileMap() {
         return this.globalFileMap;
     }
+    
 }

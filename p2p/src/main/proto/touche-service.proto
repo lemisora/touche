@@ -59,6 +59,15 @@ message RespuestaSubida {
     bool exito = 1;
 }
 
+message PeticionMetricas {
+    string direccion_origen = 1;
+}
+
+message RespuestaMetricas {
+    int32 id_nodo = 1;
+    int64 espacio_libre_bytes = 2;
+}
+
 // --- Servicio Principal del Nodo ---
 service PdaService {
     // Descubrimiento y conexión inicial
@@ -73,4 +82,7 @@ service PdaService {
 
     // Transferencia de datos
     rpc subirFragmento(PeticionSubida) returns (RespuestaSubida) {}
+
+    // Metricas
+    rpc obtenerMetricas(PeticionMetricas) returns (RespuestaMetricas) {}
 }

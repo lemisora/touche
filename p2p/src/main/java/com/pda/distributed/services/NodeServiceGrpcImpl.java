@@ -32,28 +32,27 @@ public class NodeServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
         // TODO: 1. Extraer request.getDireccionNodo() y request.getIdNodo().
         // TODO: 2. Llamar a quorumManager.evaluarIngresoNuevoNodo(...) y guardar el
         // resultado.
-        
+
         try {
-           String direccionNuevoNodo = request.getDireccionNodo();
-           int idNuevoNodo = request.getIdNodo();
-           
-           String anilloAsignado = quorumService.evaluarIngresoNuevoNodo(direccionNuevoNodo, idNuevoNodo);
-           if (this.networkService != null) {
-               this.networkService.registrarCanalSilencioso(direccionNuevoNodo);
-               if (this.stateSyncService != null) {
-                   this.stateSyncService.broadcastQuorum(quorumService.getNodeRegistry());
-                   this.stateSyncService.broadcastMapUpdate();
-               }
-           }
-           
-           // TODO: 3. Construir el JoinResponse con el anillo asignado.
-           JoinResponse response = JoinResponse.newBuilder()
-                .setAnilloAsignado(anilloAsignado)
-                .setAceptado(true)
-                .setMensaje("Aceptado")
-                .build();
-                
-            
+            String direccionNuevoNodo = request.getDireccionNodo();
+            int idNuevoNodo = request.getIdNodo();
+
+            String anilloAsignado = quorumService.evaluarIngresoNuevoNodo(direccionNuevoNodo, idNuevoNodo);
+            if (this.networkService != null) {
+                this.networkService.registrarCanalSilencioso(direccionNuevoNodo);
+                if (this.stateSyncService != null) {
+                    this.stateSyncService.broadcastQuorum(quorumService.getNodeRegistry());
+                    this.stateSyncService.broadcastMapUpdate();
+                }
+            }
+
+            // TODO: 3. Construir el JoinResponse con el anillo asignado.
+            JoinResponse response = JoinResponse.newBuilder()
+                    .setAnilloAsignado(anilloAsignado)
+                    .setAceptado(true)
+                    .setMensaje("Aceptado")
+                    .build();
+
             // TODO: 4. Enviar la respuesta con responseObserver.onNext(...) y
             // onCompleted().
             responseObserver.onNext(response);
@@ -62,7 +61,7 @@ public class NodeServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
         } catch (Exception e) {
             responseObserver.onError(e);
         }
-        
+
     }
 
     @Override
@@ -127,6 +126,39 @@ public class NodeServiceGrpcImpl extends PdaServiceGrpc.PdaServiceImplBase {
         } finally {
             // 5. Siempre cerrar la conexión
             responseObserver.onCompleted();
+        }
+    }
+
+    @Override
+    public void obtenerMetricas(com.pda.distributed.network.grpc.PeticionMetricas request,
+            io.grpc.stub.StreamObserver<com.pda.distributed.network.grpc.RespuestaMetricas> responseObserver) {
+        try {
+            long espacioLibre = 0L;
+
+            // Obtenemos nuestro espacio libre (requiere que agregues getStorageManager()
+            // a tu StorageCoordinator)
+            if (this.storageCoordinator != null && this.storageCoordinator.getStorageManager() != null) {
+                espacioLibre = this.storageCoordinator.getStorageManager().obtenerEspacioDisponible();
+            }
+
+            // Obtenemos nuestro ID
+            int miId = -1;
+            if (this.networkService != null) {
+                miId = this.networkService.getMiId();
+            }
+
+            // 3. Armamos la respuesta
+            com.pda.distributed.network.grpc.RespuestaMetricas response = com.pda.distributed.network.grpc.RespuestaMetricas
+                    .newBuilder()
+                    .setIdNodo(miId)
+                    .setEspacioLibreBytes(espacioLibre)
+                    .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+        } catch (Exception e) {
+            responseObserver.onError(e);
         }
     }
 }

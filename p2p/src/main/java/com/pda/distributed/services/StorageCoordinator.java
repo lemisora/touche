@@ -4,6 +4,7 @@ import com.pda.distributed.storage.DistributedDirectory;
 import com.pda.distributed.storage.StorageManager;
 import com.pda.distributed.utils.ConsoleLogger;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,6 +29,18 @@ public class StorageCoordinator {
     // Hilo para procesar la cola de subidas
     private Thread uploadThread;
     private boolean activo = false;
+
+    private static class NodoCandidato {
+        String direccion;
+        int id;
+        long espacioLibre;
+
+        public NodoCandidato(String direccion, int id, long espacioLibre) {
+            this.direccion = direccion;
+            this.id = id;
+            this.espacioLibre = espacioLibre;
+        }
+    }
 
     public StorageCoordinator() {
         this.uploadQueue = new LinkedBlockingQueue<>();
@@ -139,20 +152,142 @@ public class StorageCoordinator {
     }
 
     public List<String> allocateToNodes(DistributedDirectory.FileMetadata fileMetadata) {
-        // En una implementación real, le preguntaríamos al QuorumService qué nodos del
-        // RING_B
-        // tienen más espacio. Por ahora, tomaremos las conexiones activas en el
-        // NetworkService.
+        List<String> nodosConectados = networkService.getNodosConectados();
+        List<NodoCandidato> candidatos = new ArrayList<>();
 
-        List<String> nodosActivos = networkService.getNodosConectados();
+        ConsoleLogger.info("Balancer", "Calculando nodos óptimos por espacio en disco...");
+
+        for (String direccion : nodosConectados) {
+            // Pedimos las métricas actuales por red
+            long espacioLibre = networkService.pedirEspacioLibre(direccion);
+            int idNodo = networkService.pedirIdNodo(direccion);
+
+            if (idNodo != -1) {
+                candidatos.add(new NodoCandidato(direccion, idNodo, espacioLibre));
+            }
+        }
+
+        // Ordenamos: Mayor espacio primero. Si hay empate, mayor ID primero.
+        candidatos.sort((n1, n2) -> {
+            int comparacionEspacio = Long.compare(n2.espacioLibre, n1.espacioLibre);
+            if (comparacionEspacio != 0) {
+                return comparacionEspacio;
+            }
+            return Integer.compare(n2.id, n1.id);
+        });
+
+        // Seleccionamos los mejores (hasta DEFAULT_REPLICAS)
         List<String> elegidos = new ArrayList<>();
-
-        // Elegimos hasta DEFAULT_REPLICAS nodos
-        for (int i = 0; i < Math.min(DEFAULT_REPLICAS, nodosActivos.size()); i++) {
-            elegidos.add(nodosActivos.get(i));
+        for (int i = 0; i < Math.min(DEFAULT_REPLICAS, candidatos.size()); i++) {
+            elegidos.add(candidatos.get(i).direccion);
         }
 
         return elegidos;
+    }
+
+    /**
+     * Rebalanceo Continuo: Revisa si este nodo es el más lleno.
+     * Si lo es, transfiere un archivo al nodo más vacío.
+     */
+    public void balancear() {
+        ConsoleLogger.info("Balancer", "Iniciando análisis de balanceo de red...");
+
+        long miEspacioLibre = 0L;
+        if (storageManager != null) {
+            miEspacioLibre = storageManager.obtenerEspacioDisponible();
+        }
+
+        String direccionMasVacia = null;
+        long maxEspacioLibre = miEspacioLibre;
+
+        List<String> nodosConectados = networkService.getNodosConectados();
+        for (String direccion : nodosConectados) {
+            long espacioVecino = networkService.pedirEspacioLibre(direccion);
+
+            // Si el vecino tiene MÁS espacio libre que nuestro récord, él es el más vacío
+            if (espacioVecino > maxEspacioLibre) {
+                maxEspacioLibre = espacioVecino;
+                direccionMasVacia = direccion;
+            }
+        }
+
+        // Ponemos un umbral de -1 para FORZAR el balanceo durante nuestras pruebas en
+        // la misma PC
+        // En producción real, esto sería ej. 50 * 1024 * 1024 (50 MB)
+        long UMBRAL_BALANCEO = -1;
+
+        if (direccionMasVacia != null && (maxEspacioLibre - miEspacioLibre) > UMBRAL_BALANCEO) {
+            ConsoleLogger.advertencia("Balancer",
+                    "Soy el nodo más lleno. Evaluando transferir un archivo hacia el más vacío (" + direccionMasVacia
+                            + ")");
+            transferirArchivoParaBalancear(direccionMasVacia);
+        } else {
+            ConsoleLogger.exito("Balancer", "La red está balanceada o la diferencia es mínima. No se requiere acción.");
+        }
+    }
+
+    private void transferirArchivoParaBalancear(String destinoMasVacio) {
+        String miDireccion = networkService.getMiDireccion();
+        DistributedDirectory.FileMetadata archivoElegido = null;
+
+        // Buscar un archivo que me pertenezca
+        for (DistributedDirectory.FileMetadata meta : directory.getGlobalFileMap().values()) {
+            if (meta.nodeAddresses.contains(miDireccion)) {
+                archivoElegido = meta;
+                break;
+            }
+        }
+
+        if (archivoElegido == null) {
+            ConsoleLogger.info("Balancer", "No tengo archivos propios para transferir.");
+            return;
+        }
+
+        ConsoleLogger.info("Balancer", "Moviendo archivo " + archivoElegido.fileName + " hacia " + destinoMasVacio);
+
+        try {
+            // Leer archivo local (Asegúrate de que StorageManager tenga el getter
+            // getArchivosDir())
+            Path rutaLocal = storageManager.getArchivosDir().resolve(archivoElegido.fileName);
+            byte[] fileBytes = Files.readAllBytes(rutaLocal);
+
+            int totalChunks = (int) Math.ceil((double) fileBytes.length / CHUNK_SIZE_BYTES);
+            boolean transferenciaExitosa = true;
+
+            // Enviar por fragmentos
+            for (int i = 0; i < totalChunks; i++) {
+                int start = i * CHUNK_SIZE_BYTES;
+                int length = Math.min(fileBytes.length - start, CHUNK_SIZE_BYTES);
+                byte[] chunk = Arrays.copyOfRange(fileBytes, start, start + length);
+
+                boolean ok = networkService.enviarFragmento(destinoMasVacio, archivoElegido.fileName, i, chunk,
+                        totalChunks);
+                if (!ok) {
+                    transferenciaExitosa = false;
+                    break;
+                }
+            }
+
+            // Actualizar catálogo y borrar archivo local
+            if (transferenciaExitosa) {
+                archivoElegido.nodeAddresses.remove(miDireccion);
+                if (!archivoElegido.nodeAddresses.contains(destinoMasVacio)) {
+                    archivoElegido.nodeAddresses.add(destinoMasVacio);
+                }
+
+                directory.updateMap(archivoElegido);
+                if (stateSyncService != null) {
+                    stateSyncService.broadcastMapUpdate();
+                }
+
+                Files.delete(rutaLocal);
+                ConsoleLogger.exito("Balancer", "Mudanza completada. Espacio liberado localmente.");
+            } else {
+                ConsoleLogger.error("Balancer", "Fallo la transferencia hacia " + destinoMasVacio);
+            }
+        } catch (Exception e) {
+            ConsoleLogger.error("Balancer", "Error durante la mudanza: " + e.getMessage());
+        }
     }
 
     /**
@@ -169,5 +304,9 @@ public class StorageCoordinator {
     public void encolarArchivo(String rutaAbsoluta) {
         uploadQueue.offer(rutaAbsoluta);
         ConsoleLogger.info("StorageCoordinator", "Archivo encolado para subir: " + rutaAbsoluta);
+    }
+
+    public StorageManager getStorageManager() {
+        return storageManager;
     }
 }

@@ -137,7 +137,8 @@ public class NetworkService {
     }
 
     /**
-     * Envía un ping gRPC rápido. Tiene un "timeout" de 2 segundos para no quedarse colgado.
+     * Envía un ping gRPC rápido. Tiene un "timeout" de 10 segundos para no quedarse
+     * colgado.
      */
     private boolean enviarPing(String targetAddress) {
         try {
@@ -157,7 +158,8 @@ public class NetworkService {
             return response.getExito();
 
         } catch (Exception e) {
-            // Cualquier error (Timeout, conexión rechazada, etc) significa que el nodo murió
+            // Cualquier error (Timeout, conexión rechazada, etc) significa que el nodo
+            // murió
             return false;
         }
     }
@@ -172,7 +174,8 @@ public class NetworkService {
             String ip = ip_parts[0];
             int port = Integer.parseInt(ip_parts[1]);
 
-            // Normalizar la IP: Si alguien nos manda un 127.0.0.1, lo cambiamos a nuestra IP real
+            // Normalizar la IP: Si alguien nos manda un 127.0.0.1, lo cambiamos a nuestra
+            // IP real
             if (seedAddress.startsWith("127.0.0.1:")) {
                 seedAddress = seedAddress.replace("127.0.0.1", nodoLocal.getIp());
             }
@@ -182,7 +185,8 @@ public class NetworkService {
                 return false; // Nos ignoramos silenciosamente
             }
 
-            // Prevenir duplicados: Si ya tenemos esta dirección normalizada, no hacemos nada
+            // Prevenir duplicados: Si ya tenemos esta dirección normalizada, no hacemos
+            // nada
             if (activeChannels.containsKey(seedAddress)) {
                 return true;
             }
@@ -322,12 +326,14 @@ public class NetworkService {
 
     /**
      * Registra un canal de comunicación con un nodo sin pedirle unirse a su red.
-     * Útil cuando nosotros ya somos parte de una red y descubrimos a un recién llegado.
+     * Útil cuando nosotros ya somos parte de una red y descubrimos a un recién
+     * llegado.
      */
     public void registrarCanalSilencioso(String targetAddress) {
         if (!activeChannels.containsKey(targetAddress)) {
             String[] partes = targetAddress.split(":");
-            io.grpc.ManagedChannel channel = io.grpc.ManagedChannelBuilder.forAddress(partes[0], Integer.parseInt(partes[1]))
+            io.grpc.ManagedChannel channel = io.grpc.ManagedChannelBuilder
+                    .forAddress(partes[0], Integer.parseInt(partes[1]))
                     .usePlaintext()
                     .build();
             activeChannels.put(targetAddress, channel);
@@ -403,6 +409,59 @@ public class NetworkService {
             ConsoleLogger.error("Network",
                     "Fallo al enviar fragmento a " + targetAddress + " (El nodo podría estar caído).");
             return false;
+        }
+    }
+
+    /**
+     * Pregunta por gRPC el espacio libre de un nodo. Retorna 0 si falla.
+     */
+    public long pedirEspacioLibre(String direccionDestino) {
+        try {
+            io.grpc.ManagedChannel channel = activeChannels.get(direccionDestino);
+            if (channel == null)
+                return 0L;
+
+            // Usamos un stub bloqueante con 5 segundos de paciencia
+            com.pda.distributed.network.grpc.PdaServiceGrpc.PdaServiceBlockingStub stub = com.pda.distributed.network.grpc.PdaServiceGrpc
+                    .newBlockingStub(channel)
+                    .withDeadlineAfter(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            com.pda.distributed.network.grpc.PeticionMetricas request = com.pda.distributed.network.grpc.PeticionMetricas
+                    .newBuilder()
+                    .setDireccionOrigen(this.getMiDireccion())
+                    .build();
+
+            // Enviamos la petición y devolvemos los bytes
+            return stub.obtenerMetricas(request).getEspacioLibreBytes();
+        } catch (Exception e) {
+            com.pda.distributed.utils.ConsoleLogger.error("Network",
+                    "Error pidiendo espacio a " + direccionDestino + ": " + e.getMessage());
+            return 0L;
+        }
+    }
+
+    /**
+     * Pregunta por gRPC el ID real de un nodo. Retorna -1 si falla.
+     */
+    public int pedirIdNodo(String direccionDestino) {
+        try {
+            io.grpc.ManagedChannel channel = activeChannels.get(direccionDestino);
+            if (channel == null)
+                return -1;
+
+            com.pda.distributed.network.grpc.PdaServiceGrpc.PdaServiceBlockingStub stub = com.pda.distributed.network.grpc.PdaServiceGrpc
+                    .newBlockingStub(channel)
+                    .withDeadlineAfter(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            com.pda.distributed.network.grpc.PeticionMetricas request = com.pda.distributed.network.grpc.PeticionMetricas
+                    .newBuilder()
+                    .setDireccionOrigen(this.getMiDireccion())
+                    .build();
+
+            // Enviamos la petición y devolvemos el ID
+            return stub.obtenerMetricas(request).getIdNodo();
+        } catch (Exception e) {
+            return -1; // Retornamos -1 para que el balanceador lo ignore
         }
     }
 
