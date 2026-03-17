@@ -95,8 +95,7 @@ public class DiscoveryService {
 
                 while (activo) {
                     // Anunciamos solo nuestro puerto: PDA_NODE_ANNOUNCEMENT:50051
-                    String mensaje = MAGIC_WORD + miPuertoGrpc;
-                    byte[] buffer = mensaje.getBytes();
+                    String mensaje = MAGIC_WORD + networkService.getMiId() + ":" + miPuertoGrpc;                    byte[] buffer = mensaje.getBytes();
 
                     // 1. Intento general de Broadcast (255.255.255.255)
                     try {
@@ -138,43 +137,47 @@ public class DiscoveryService {
     }
 
     private void procesarAnuncio(String mensaje, String ipOrigen) {
-        try {
-            // Ejemplo de mensaje: PDA_NODE_ANNOUNCEMENT:50051
-            String puertoString = mensaje.substring(MAGIC_WORD.length()).trim();
-
-            // Si el grito vino por loopback, lo traducimos a nuestra IP real de la red
-            if (ipOrigen.equals("127.0.0.1") || ipOrigen.equals("localhost")) {
-                // Asumo que tienes un método getMiIp(), si no, usa el que obtenga "192.168.x.x"
-                ipOrigen = networkService.getMiDireccion().split(":")[0];
-            }
-
-            // Construimos la clave unificada "IP:Puerto"
-            String direccionDescubierta = ipOrigen + ":" + puertoString;
-            String miDireccion = networkService.getMiDireccion();
-
-            // Evitar conectarnos a nosotros mismos
-            if (direccionDescubierta.equals(miDireccion)) {
-                return;
-            }
-
-            // Evitar reconectar si ya estamos conectados a este nodo
-            if (!networkService.estaConectado(direccionDescubierta)) {
-                ConsoleLogger.info("Discovery", "¡Nodo nuevo descubierto! IP: " + direccionDescubierta);
-
-                // Le preguntamos al Nodo (a través del NetworkService) en qué estado está.
-                if (networkService.getNodoLocal().getCurrentState() == com.pda.distributed.core.NodeState.BLOCKED) {
-                    // Somos nuevos y estamos buscando red. ¡Pedimos unirnos!
-                    networkService.joinNetwork(direccionDescubierta, miDireccion, networkService.getMiId());
-                } else {
-                    // Ya somos parte de una red (READY). No pedimos unirnos.
-                    // Solo guardamos su canal para que cuando él nos pida unirse a nosotros,
-                    // ya tengamos el cable listo para responderle y mandarle latidos.
-                    networkService.registrarCanalSilencioso(direccionDescubierta);
+            try {
+                // Extraemos el payload después de la palabra mágica
+                String payload = mensaje.substring(MAGIC_WORD.length()).trim();
+                
+                // El payload ahora trae ID y Puerto separados por ":" (Ej. "5799:50000")
+                String[] partes = payload.split(":");
+                if (partes.length < 2) return; // Ignoramos mensajes con formato viejo
+                
+                int idDescubierto = Integer.parseInt(partes[0]);
+                String puertoString = partes[1];
+    
+                // =================================================================
+                // FILTRO DEFINITIVO PARA HOSTS MULTI-INTERFAZ (Docker, VPN, Wi-Fi)
+                // =================================================================
+                if (idDescubierto == networkService.getMiId()) {
+                    return; // ¡Soy yo mismo! El grito rebotó por otra tarjeta de red. Lo ignoramos.
                 }
+    
+                // Normalización de loopback (por si acaso)
+                if (ipOrigen.equals("127.0.0.1") || ipOrigen.equals("localhost")) {
+                    ipOrigen = networkService.getMiDireccion().split(":")[0]; 
+                }
+    
+                String direccionDescubierta = ipOrigen + ":" + puertoString;
+                String miDireccion = networkService.getMiDireccion();
+    
+                // Evitar reconectar si ya estamos conectados
+                if (!networkService.estaConectado(direccionDescubierta)) {
+                    ConsoleLogger.info("Discovery", "¡Nodo nuevo descubierto! IP: " + direccionDescubierta);
+    
+                    if (networkService.getNodoLocal().getCurrentState() == com.pda.distributed.core.NodeState.BLOCKED) {
+                        // Somos nuevos y pedimos unirnos
+                        networkService.joinNetwork(direccionDescubierta, miDireccion, networkService.getMiId());
+                    } else {
+                        // Ya estamos en la red, solo abrimos el canal de malla
+                        networkService.registrarCanalSilencioso(direccionDescubierta);
+                    }
+                }
+    
+            } catch (Exception e) {
+                ConsoleLogger.advertencia("Discovery", "Mensaje UDP malformado ignorado: " + mensaje);
             }
-
-        } catch (Exception e) {
-            ConsoleLogger.advertencia("Discovery", "Mensaje UDP malformado ignorado: " + mensaje);
         }
-    }
 }
